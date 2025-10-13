@@ -7,6 +7,7 @@ namespace UDPServer
 {
     class Program
     {
+        static int count = 0;
         static void Main(string[] args)
         {
             var IPEP = new IPEndPoint(IPAddress.Any, 9876);
@@ -16,7 +17,8 @@ namespace UDPServer
                 var client = new IPEndPoint(IPAddress.Any, 0);
                 var data = theSock.Receive(ref client);
                 var rcvData = Encoding.ASCII.GetString(data);
-                var newData = Encoding.ASCII.GetBytes(rcvData.ToUpper());
+                var newString = (++count).ToString() + " " + rcvData;
+                var newData = Encoding.ASCII.GetBytes(newString);
                 theSock.Send(newData, newData.Length, client);
             }
         }

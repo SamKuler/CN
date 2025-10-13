@@ -8,9 +8,10 @@
 #include <arpa/inet.h>  /* IP address conversion stuff */
 #include <netdb.h>      /* gethostbyname */
 
-#define MAXBUF 10*1024
+#define MAXBUF 10 * 1024
 
-int main() {
+int main()
+{
   int sk;
   struct sockaddr_in server;
   struct hostent *hp;
@@ -21,7 +22,8 @@ int main() {
      UDP (SOCK_DGRAM)
   */
 
-  if ((sk = socket(PF_INET, SOCK_DGRAM, 0)) < 0) {
+  if ((sk = socket(PF_INET, SOCK_DGRAM, 0)) < 0)
+  {
     printf("Problem creating socket\n");
     exit(1);
   }
@@ -33,40 +35,43 @@ int main() {
      It is already in network byte order
   */
 
-  memcpy(&server.sin_addr.s_addr, hp->h_addr, hp->h_length);
+  memcpy(&server.sin_addr.s_addr, hp->h_addr_list[0], hp->h_length);
 
   /* establish the server port number - we must use network byte order! */
   server.sin_port = htons(9876);
 
-  /* read everything possible */
-  fgets(buf, MAXBUF, stdin);
-  size_t buf_len = strlen(buf);
+  for (int i = 0; i <= 50; i++)
+  {
+    sprintf(buf, "%d", i);
+    size_t buf_len = strlen(buf);
 
-  /* send it to the echo server */
+    /* send it to the echo server */
 
-  int n_sent = sendto(sk, buf, buf_len, 0,
-                  (struct sockaddr*) &server, sizeof(server));
+    int n_sent = sendto(sk, buf, buf_len, 0,
+                        (struct sockaddr *)&server, sizeof(server));
 
-  if (n_sent < 0) {
-    perror("Problem sending data");
-    exit(1);
+    if (n_sent < 0)
+    {
+      perror("Problem sending data");
+      exit(1);
+    }
+
+    if (n_sent != buf_len)
+    {
+      printf("Sendto sent %d bytes\n", n_sent);
+    }
+
+    /* Wait for a reply (from anyone) */
+    int n_read = recvfrom(sk, buf, MAXBUF - 1, 0, NULL, NULL);
+    if (n_read < 0)
+    {
+      perror("Problem in recvfrom");
+      exit(1);
+    }
+
+    buf[n_read] = '\0';
+    printf("Received from server: %s\n", buf);
   }
-
-  if (n_sent != buf_len) {
-    printf("Sendto sent %d bytes\n", n_sent);
-  }
-
-  /* Wait for a reply (from anyone) */
-  int n_read = recvfrom(sk, buf, MAXBUF, 0, NULL, NULL);
-  if (n_read < 0) {
-    perror("Problem in recvfrom");
-    exit(1);
-  }
-
-  /* send what we got back to stdout */
-  if (write(STDOUT_FILENO, buf, n_read) < 0) {
-    perror("Problem writing to stdout");
-    exit(1);
-  }
+  close(sk);
   return 0;
 }

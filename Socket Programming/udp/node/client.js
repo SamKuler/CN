@@ -4,13 +4,24 @@ var HOST = '127.0.0.1';
 var dgram = require('dgram');
 var client = dgram.createSocket('udp4');
 
+let inactivityTimeout;
+
+function closeClientAfterInactivity() {
+  console.log('Client shutdown for inactivity.');
+  client.close();
+}
+
 client.on('message', function (message) {
-    console.log(message.toString());
-    client.close();
+  console.log(`Received from server: ${message.toString()}`);
+
+  // Reset the timeout
+  clearTimeout(inactivityTimeout);
+  inactivityTimeout = setTimeout(closeClientAfterInactivity, 500);
 });
 
-process.stdin.resume();
-process.stdin.once('data', function (buffer) {
-  process.stdin.pause();
-  client.send(buffer, 0, buffer.length - 1, PORT, HOST);
-});
+for (let i = 0; i <= 50; i++) {
+  const buffer = Buffer.from(i.toString());
+  client.send(buffer, 0, buffer.length, PORT, HOST);
+}
+
+inactivityTimeout = setTimeout(closeClientAfterInactivity, 1000);
