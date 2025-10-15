@@ -34,13 +34,13 @@ static const char *level_colors[] = {
 // Global logger
 static struct
 {
-    FILE *fp;        // File pointer to log file
-    LogLevel level;  // Minimum log level
-    int initialized; // To avoid reinit
+    FILE *fp;          // File pointer to log file
+    log_level_t level; // Minimum log level
+    int initialized;   // To avoid reinit
     pthread_mutex_t lock;
-} logger = {NULL, LOG_INFO, 0, PTHREAD_MUTEX_INITIALIZER};
+} logger = {NULL, LOG_LEVEL_INFO, 0, PTHREAD_MUTEX_INITIALIZER};
 
-int logger_init(const char *log_file, LogLevel level)
+int logger_init(const char *log_file, log_level_t level)
 {
     if (logger.initialized)
     {
@@ -69,12 +69,12 @@ int logger_init(const char *log_file, LogLevel level)
     return 0;
 }
 
-void logger_log(LogLevel level, const char *filename,
+void logger_log(log_level_t level, const char *filename,
                 int line, const char *funcname,
                 const char *format, ...)
 {
     // Bound check
-    if (level < LOG_DEBUG || level > LOG_ERROR)
+    if (level < LOG_LEVEL_DEBUG || level > LOG_LEVEL_ERROR)
     {
         return;
     }
@@ -124,7 +124,7 @@ void logger_log(LogLevel level, const char *filename,
     fprintf(logger.fp, "\n");
 
     // Immediate output for error
-    if (level == LOG_ERROR)
+    if (level == LOG_LEVEL_ERROR)
     {
         fflush(logger.fp);
     }
@@ -146,9 +146,9 @@ void logger_close(void)
     pthread_mutex_unlock(&logger.lock);
 }
 
-void logger_set_level(LogLevel level)
+void logger_set_level(log_level_t level)
 {
-    if (level >= LOG_DEBUG && level <= LOG_ERROR)
+    if (level >= LOG_LEVEL_DEBUG && level <= LOG_LEVEL_ERROR)
     {
         logger.level = level;
     }

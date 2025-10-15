@@ -1,13 +1,13 @@
 #ifndef LOGGER_H
 #define LOGGER_H
 
-typedef enum LogLevel
+typedef enum log_level_t
 {
-    LOG_DEBUG,
-    LOG_INFO,
-    LOG_WARN,
-    LOG_ERROR
-} LogLevel;
+    LOG_LEVEL_DEBUG,
+    LOG_LEVEL_INFO,
+    LOG_LEVEL_WARN,
+    LOG_LEVEL_ERROR
+} log_level_t;
 
 /**
  * @brief Initialize the log system.
@@ -17,7 +17,7 @@ typedef enum LogLevel
  * @retval 0:    Success open
  * @retval -1:   Failure or error
  */
-int logger_init(const char *log_file, LogLevel level);
+int logger_init(const char *log_file, log_level_t level);
 
 /**
  * @brief Write actual logs.
@@ -31,7 +31,7 @@ int logger_init(const char *log_file, LogLevel level);
  * @param format printf-style format strings
  * @param ... Variable parameters
  */
-void logger_log(LogLevel level, const char *filename, int line, const char *funcname, const char *format, ...);
+void logger_log(log_level_t level, const char *filename, int line, const char *funcname, const char *format, ...);
 
 /**
  * @brief Close the log system.
@@ -47,12 +47,12 @@ void logger_close(void);
  *
  * @param level New minimum log level
  */
-void logger_set_level(LogLevel level);
+void logger_set_level(log_level_t level);
 
 // Useful macros
-#define LOG_INFO(...) logger_log(LOG_INFO, __FILE__, __LINE__, __func__, __VA_ARGS__)
-#define LOG_WARN(...) logger_log(LOG_WARN, __FILE__, __LINE__, __func__, __VA_ARGS__)
-#define LOG_ERROR(...) logger_log(LOG_ERROR, __FILE__, __LINE__, __func__, __VA_ARGS__)
-#define LOG_DEBUG(...) logger_log(LOG_DEBUG, __FILE__, __LINE__, __func__, __VA_ARGS__)
+#define LOG_DEBUG(...) logger_log(LOG_LEVEL_DEBUG, __FILE__, __LINE__, __func__, __VA_ARGS__)
+#define LOG_INFO(...) logger_log(LOG_LEVEL_INFO, __FILE__, __LINE__, __func__, __VA_ARGS__)
+#define LOG_WARN(...) logger_log(LOG_LEVEL_WARN, __FILE__, __LINE__, __func__, __VA_ARGS__)
+#define LOG_ERROR(...) logger_log(LOG_LEVEL_ERROR, __FILE__, __LINE__, __func__, __VA_ARGS__)
 
 #endif
