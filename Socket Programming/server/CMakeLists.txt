@@ -12,6 +12,7 @@ include_directories(${PROJECT_SOURCE_DIR}/include)
 set(SOURCES
     src/utils.c
     src/logger.c
+    src/filesys.c
 )
 
 # Create static library

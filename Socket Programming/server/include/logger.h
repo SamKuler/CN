@@ -1,3 +1,10 @@
+/**
+ * @file logger.h
+ * @brief Provide a simple logging system
+ * @version 0.1
+ * @date 2025-10-14
+ *
+ */
 #ifndef LOGGER_H
 #define LOGGER_H
 
