@@ -21,7 +21,8 @@ typedef enum
 {
     FS_TYPE_UNKNOWN,
     FS_TYPE_FILE,
-    FS_TYPE_DIR
+    FS_TYPE_DIR,
+    FS_TYPE_SYMLINK
 } fs_file_type_t;
 
 // File information struct. Include filename, filesize and filetype.
@@ -31,6 +32,16 @@ typedef struct
     fs_file_type_t type;         // Type: file, directory, or unknown
     long long size;              // File size in bytes (0 for directories)
 } fs_file_info_t;
+
+/**
+ * @brief Join directory and name into a single path stored in dest
+ * @param dest Output buffer where the joined path will be written.
+ * @param dest_size Size of the output buffer in bytes (including the NUL).
+ * @param dir Directory path component (must not be NULL).
+ * @param name File name or subpath component (must not be NULL).
+ * @return int 0 on success, -1 on error (invalid arguments or insufficient buffer).
+ */
+int fs_join_path(char *dest, long long dest_size, const char *dir, const char *name);
 
 /**
  * @brief Check whether file/dir exits.
