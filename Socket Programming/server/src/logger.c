@@ -1,3 +1,11 @@
+/**
+ * @file logger.c
+ * @brief Implementations for logger functions.
+ *
+ * @version 0.1
+ * @date 2025-10-15
+ *
+ */
 #include "logger.h"
 #include "utils.h"
 #include <stdio.h>
