@@ -74,24 +74,49 @@ socket_t net_create_listening_socket(net_addr_family_t family, uint16_t port, in
 socket_t net_accept_client(socket_t listening_socket, char *client_ip_buffer, size_t buffer_size, uint16_t *client_port);
 
 /**
+ * @brief Connects to a remote host.
+ *
+ * This is used for active mode FTP, where the server connects to the client.
+ *
+ * @param host The hostname or IP address of the server to connect to.
+ * @param port The port number to connect to.
+ * @return The socket descriptor for the new connection, or INVALID_SOCKET_T on error.
+ */
+socket_t net_connect(const char *host, uint16_t port);
+
+/**
+ * @brief Gets the local address and port of a socket.
+ *
+ * This is useful for passive mode FTP, to find out which port the OS assigned
+ * to a listening socket.
+ *
+ * @param sock The socket descriptor.
+ * @param ip_buffer A buffer to store the local IP address string (can be NULL).
+ * @param buffer_size The size of the ip_buffer.
+ * @param port A pointer to store the local port number (can be NULL).
+ * @return 0 on success, -1 on error.
+ */
+int net_get_socket_info(socket_t sock, char *ip_buffer, size_t buffer_size, uint16_t *port);
+
+/**
  * @brief Receives data from a connected socket.
  *
- * @param client_socket The socket to receive data from.
+ * @param connected_socket The socket to receive data from.
  * @param buffer The buffer to store the received data.
  * @param buffer_size The maximum number of bytes to receive.
  * @return The number of bytes received, 0 if the connection was closed by the peer, or -1 on error.
  */
-int net_receive(socket_t client_socket, void *buffer, size_t buffer_size);
+int net_receive(socket_t connected_socket, void *buffer, size_t buffer_size);
 
 /**
  * @brief Sends data to a connected socket.
  *
- * @param client_socket The socket to send data to.
+ * @param connected_socket The socket to send data to.
  * @param data The data to send.
  * @param length The number of bytes to send.
  * @return The number of bytes sent, or -1 on error.
  */
-int net_send(socket_t client_socket, const void *data, size_t length);
+int net_send(socket_t connected_socket, const void *data, size_t length);
 
 /**
  * @brief Closes a socket.

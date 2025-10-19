@@ -173,22 +173,100 @@ socket_t net_accept_client(socket_t listening_socket, char *client_ip_buffer, si
     return client_socket;
 }
 
-int net_receive(socket_t client_socket, void *buffer, size_t buffer_size)
+int net_receive(socket_t connected_socket, void *buffer, size_t buffer_size)
 {
 #ifdef _WIN32
-    return recv(client_socket, (char *)buffer, (int)buffer_size, 0);
+    return recv(connected_socket, (char *)buffer, (int)buffer_size, 0);
 #else
-    return (int)recv(client_socket, buffer, buffer_size, 0);
+    return (int)recv(connected_socket, buffer, buffer_size, 0);
 #endif
 }
 
-int net_send(socket_t client_socket, const void *data, size_t length)
+int net_send(socket_t connected_socket, const void *data, size_t length)
 {
 #ifdef _WIN32
-    return send(client_socket, (const char *)data, (int)length, 0);
+    return send(connected_socket, (const char *)data, (int)length, 0);
 #else
-    return (int)send(client_socket, data, length, 0);
+    return (int)send(connected_socket, data, length, 0);
 #endif
+}
+
+socket_t net_connect(const char *host, uint16_t port)
+{
+    struct addrinfo hints, *res, *p;
+    socket_t sock = INVALID_SOCKET_T;
+    char port_str[6];
+
+    snprintf(port_str, sizeof(port_str), "%u", port);
+
+    memset(&hints, 0, sizeof(hints));
+    hints.ai_family = AF_UNSPEC;
+    hints.ai_socktype = SOCK_STREAM;
+
+    if (getaddrinfo(host, port_str, &hints, &res) != 0)
+    {
+        return INVALID_SOCKET_T;
+    }
+
+    for (p = res; p != NULL; p = p->ai_next)
+    {
+        sock = socket(p->ai_family, p->ai_socktype, p->ai_protocol);
+        if (sock == INVALID_SOCKET_T)
+        {
+            continue;
+        }
+
+        if (connect(sock, p->ai_addr, (int)p->ai_addrlen) < 0)
+        {
+            net_close_socket(sock);
+            sock = INVALID_SOCKET_T;
+            continue;
+        }
+
+        break; // Successfully connected
+    }
+
+    freeaddrinfo(res);
+
+    return sock;
+}
+
+int net_get_socket_info(socket_t sock, char *ip_buffer, size_t buffer_size, uint16_t *port)
+{
+    struct sockaddr_storage addr;
+    socklen_t addr_len = sizeof(addr);
+
+    if (getsockname(sock, (struct sockaddr *)&addr, &addr_len) < 0)
+    {
+        return -1;
+    }
+
+    if (addr.ss_family == AF_INET)
+    {
+        struct sockaddr_in *s = (struct sockaddr_in *)&addr;
+        if (ip_buffer && buffer_size > 0)
+        {
+            inet_ntop(AF_INET, &s->sin_addr, ip_buffer, buffer_size);
+        }
+        if (port)
+        {
+            *port = ntohs(s->sin_port);
+        }
+    }
+    else // AF_INET6
+    {
+        struct sockaddr_in6 *s = (struct sockaddr_in6 *)&addr;
+        if (ip_buffer && buffer_size > 0)
+        {
+            inet_ntop(AF_INET6, &s->sin6_addr, ip_buffer, buffer_size);
+        }
+        if (port)
+        {
+            *port = ntohs(s->sin6_port);
+        }
+    }
+
+    return 0;
 }
 
 void net_close_socket(socket_t sock)
