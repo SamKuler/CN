@@ -269,6 +269,44 @@ int net_get_socket_info(socket_t sock, char *ip_buffer, size_t buffer_size, uint
     return 0;
 }
 
+int net_send_all(socket_t connected_socket, const void *data, size_t length)
+{
+    const char *ptr = (const char *)data;
+    size_t total_sent = 0;
+
+    while (total_sent < length)
+    {
+        int bytes_sent = net_send(connected_socket, ptr + total_sent, length - total_sent);
+        if (bytes_sent <= 0)
+        {
+            // Error or connection closed
+            return -1;
+        }
+        total_sent += bytes_sent;
+    }
+
+    return 0; // Success
+}
+
+int net_receive_all(socket_t connected_socket, void *buffer, size_t length)
+{
+    char *ptr = (char *)buffer;
+    size_t total_received = 0;
+
+    while (total_received < length)
+    {
+        int bytes_received = net_receive(connected_socket, ptr + total_received, length - total_received);
+        if (bytes_received <= 0)
+        {
+            // Error or connection closed before receiving all data
+            return -1;
+        }
+        total_received += bytes_received;
+    }
+
+    return 0; // Success
+}
+
 void net_close_socket(socket_t sock)
 {
 #ifdef _WIN32

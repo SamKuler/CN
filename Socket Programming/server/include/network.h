@@ -119,6 +119,30 @@ int net_receive(socket_t connected_socket, void *buffer, size_t buffer_size);
 int net_send(socket_t connected_socket, const void *data, size_t length);
 
 /**
+ * @brief Reliably sends a specific amount of data to a connected socket.
+ *
+ * This function loops until all data is sent or an error occurs.
+ *
+ * @param connected_socket The socket to send data to.
+ * @param data The data to send.
+ * @param length The total number of bytes to send.
+ * @return 0 on success, -1 on failure (e.g., connection closed or error).
+ */
+int net_send_all(socket_t connected_socket, const void *data, size_t length);
+
+/**
+ * @brief Reliably receives a specific amount of data from a connected socket.
+ *
+ * This function loops until all requested data is received or an error occurs.
+ *
+ * @param connected_socket The socket to receive data from.
+ * @param buffer The buffer to store the received data.
+ * @param length The total number of bytes to receive.
+ * @return 0 on success, -1 on failure (e.g., connection closed before all data arrived).
+ */
+int net_receive_all(socket_t connected_socket, void *buffer, size_t length);
+
+/**
  * @brief Closes a socket.
  *
  * @param sock The socket descriptor to close.
