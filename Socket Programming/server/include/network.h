@@ -1,0 +1,103 @@
+/**
+ * @file network.h
+ * @brief Provide the same connection interfaces (TCP) on different platforms
+ * @version 0.1
+ * @date 2025-10-19
+ *
+ */
+#ifndef NETWORK_H
+#define NETWORK_H
+
+#include <stdint.h>
+#include <stddef.h>
+
+#ifdef _WIN32
+#include <winsock2.h>
+typedef SOCKET socket_t;
+#define INVALID_SOCKET_T INVALID_SOCKET
+#else
+typedef int socket_t;
+#define INVALID_SOCKET_T -1
+#endif
+
+/**
+ * @brief Initializes the networking library.
+ *
+ * On Windows, this calls WSAStartup.
+ * On POSIX systems, this does nothing.
+ * Must be called once before any other network functions.
+ *
+ * @return int 0 on success, -1 on failure.
+ */
+int net_init(void);
+
+/**
+ * @brief Shuts down the networking library.
+ *
+ * On Windows, this calls WSACleanup.
+ * On POSIX systems, this does nothing.
+ * Should be called once when the application is exiting.
+ */
+void net_shutdown(void);
+
+/**
+ * @brief Defines the address family for socket creation.
+ */
+typedef enum
+{
+    NET_AF_UNSPEC, // Let the system decide (e.g., IPv6 if available, otherwise IPv4)
+    NET_AF_IPV4,   // Force IPv4
+    NET_AF_IPV6    // Force IPv6
+} net_addr_family_t;
+
+/**
+ * @brief Creates a TCP socket and sets it to listen for incoming connections.
+ *
+ * @param family The address family to use (IPv4, IPv6, or Unspecified).
+ * @param port The port number to listen on (e.g., 21 for FTP).
+ * @param backlog The maximum number of pending connections to queue.
+ * @retval socket_t The listening socket descriptor on success, or INVALID_SOCKET_T on error.
+ */
+socket_t net_create_listening_socket(net_addr_family_t family, uint16_t port, int backlog);
+
+/**
+ * @brief Accepts an incoming client connection on a listening socket.
+ *
+ * This function will block until a client connects.
+ *
+ * @param listening_socket The server's main listening socket.
+ * @param client_ip_buffer A buffer to store the client's IP address string (can be NULL).
+ * @param buffer_size The size of the client_ip_buffer.
+ * @param client_port A pointer to store the client's port number (can be NULL).
+ * @return The new socket descriptor for communicating with the client, or INVALID_SOCKET_T on error.
+ */
+socket_t net_accept_client(socket_t listening_socket, char *client_ip_buffer, size_t buffer_size, uint16_t *client_port);
+
+/**
+ * @brief Receives data from a connected socket.
+ *
+ * @param client_socket The socket to receive data from.
+ * @param buffer The buffer to store the received data.
+ * @param buffer_size The maximum number of bytes to receive.
+ * @return The number of bytes received, 0 if the connection was closed by the peer, or -1 on error.
+ */
+int net_receive(socket_t client_socket, void *buffer, size_t buffer_size);
+
+/**
+ * @brief Sends data to a connected socket.
+ *
+ * @param client_socket The socket to send data to.
+ * @param data The data to send.
+ * @param length The number of bytes to send.
+ * @return The number of bytes sent, or -1 on error.
+ */
+int net_send(socket_t client_socket, const void *data, size_t length);
+
+/**
+ * @brief Closes a socket.
+ *
+ * @param sock The socket descriptor to close.
+ */
+void net_close_socket(socket_t sock);
+
+#endif

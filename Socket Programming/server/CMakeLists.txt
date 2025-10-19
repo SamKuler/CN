@@ -25,6 +25,7 @@ set(SOURCES
     src/utils.c
     src/logger.c
     src/filesys.c
+    src/network.c
 )
 
 # Create library: use shared library when coverage enabled to ensure coverage data is emitted
