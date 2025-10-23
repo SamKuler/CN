@@ -92,7 +92,7 @@ socket_t net_create_listening_socket(net_addr_family_t family, uint16_t port, in
             continue;
         }
 
-        // For IPv6, ensure it's not an IPv4-mapped address (IPv6 only)s
+        // For IPv6, ensure it's not an IPv4-mapped address (IPv6 only)
         if (p->ai_family == AF_INET6)
         {
             int ipv6_only = 1;
@@ -130,7 +130,7 @@ socket_t net_create_listening_socket(net_addr_family_t family, uint16_t port, in
     return listening_socket;
 }
 
-socket_t net_accept_client(socket_t listening_socket, char *client_ip_buffer, size_t buffer_size, uint16_t *client_port)
+socket_t net_accept(socket_t listening_socket, char *client_ip_buffer, size_t buffer_size, uint16_t *client_port)
 {
     struct sockaddr_storage client_addr;
     socklen_t addr_len = sizeof(client_addr);
@@ -171,24 +171,6 @@ socket_t net_accept_client(socket_t listening_socket, char *client_ip_buffer, si
     }
 
     return client_socket;
-}
-
-int net_receive(socket_t connected_socket, void *buffer, size_t buffer_size)
-{
-#ifdef _WIN32
-    return recv(connected_socket, (char *)buffer, (int)buffer_size, 0);
-#else
-    return (int)recv(connected_socket, buffer, buffer_size, 0);
-#endif
-}
-
-int net_send(socket_t connected_socket, const void *data, size_t length)
-{
-#ifdef _WIN32
-    return send(connected_socket, (const char *)data, (int)length, 0);
-#else
-    return (int)send(connected_socket, data, length, 0);
-#endif
 }
 
 socket_t net_connect(const char *host, uint16_t port)
@@ -267,6 +249,24 @@ int net_get_socket_info(socket_t sock, char *ip_buffer, size_t buffer_size, uint
     }
 
     return 0;
+}
+
+int net_receive(socket_t connected_socket, void *buffer, size_t buffer_size)
+{
+#ifdef _WIN32
+    return recv(connected_socket, (char *)buffer, (int)buffer_size, 0);
+#else
+    return (int)recv(connected_socket, buffer, buffer_size, 0);
+#endif
+}
+
+int net_send(socket_t connected_socket, const void *data, size_t length)
+{
+#ifdef _WIN32
+    return send(connected_socket, (const char *)data, (int)length, 0);
+#else
+    return (int)send(connected_socket, data, length, 0);
+#endif
 }
 
 int net_send_all(socket_t connected_socket, const void *data, size_t length)

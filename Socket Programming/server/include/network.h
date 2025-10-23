@@ -71,7 +71,7 @@ socket_t net_create_listening_socket(net_addr_family_t family, uint16_t port, in
  * @param client_port A pointer to store the client's port number (can be NULL).
  * @return The new socket descriptor for communicating with the client, or INVALID_SOCKET_T on error.
  */
-socket_t net_accept_client(socket_t listening_socket, char *client_ip_buffer, size_t buffer_size, uint16_t *client_port);
+socket_t net_accept(socket_t listening_socket, char *client_ip_buffer, size_t buffer_size, uint16_t *client_port);
 
 /**
  * @brief Connects to a remote host.
