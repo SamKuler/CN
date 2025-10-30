@@ -16,10 +16,13 @@
 #pragma comment(lib, "ws2_32.lib")
 #else
 #include <unistd.h>
+#include <fcntl.h>
+#include <sys/select.h>
 #include <sys/types.h>
 #include <sys/socket.h>
-#include <netdb.h>
 #include <arpa/inet.h>
+#include <netinet/tcp.h>
+#include <netdb.h>
 #include <errno.h>
 #endif
 
@@ -128,6 +131,40 @@ socket_t net_create_listening_socket(net_addr_family_t family, uint16_t port, in
     }
 
     return listening_socket;
+}
+
+socket_t net_create_listening_socket_range(net_addr_family_t family, uint16_t port_min,
+                                           uint16_t port_max, int backlog, uint16_t *assigned_port)
+{
+    socket_t listening_socket = INVALID_SOCKET_T;
+    uint16_t port;
+
+    if (port_min > port_max)
+    {
+        return INVALID_SOCKET_T;
+    }
+
+    // Try each port in the range
+    for (port = port_min; port <= port_max; port++)
+    {
+        listening_socket = net_create_listening_socket(family, port, backlog);
+        if (listening_socket != INVALID_SOCKET_T)
+        {
+            // Successfully bound to this port
+            if (assigned_port)
+            {
+                *assigned_port = port;
+            }
+            return listening_socket;
+        }
+    }
+
+    // Failed to bind to any port in the range
+    if (assigned_port)
+    {
+        *assigned_port = 0;
+    }
+    return INVALID_SOCKET_T;
 }
 
 socket_t net_accept(socket_t listening_socket, char *client_ip_buffer, size_t buffer_size, uint16_t *client_port)
@@ -260,6 +297,70 @@ int net_receive(socket_t connected_socket, void *buffer, size_t buffer_size)
 #endif
 }
 
+int net_receive_all(socket_t connected_socket, void *buffer, size_t length)
+{
+    char *ptr = (char *)buffer;
+    size_t total_received = 0;
+
+    while (total_received < length)
+    {
+        int bytes_received = net_receive(connected_socket, ptr + total_received, length - total_received);
+        if (bytes_received <= 0)
+        {
+            // Error or connection closed before receiving all data
+            return -1;
+        }
+        total_received += bytes_received;
+    }
+
+    return 0; // Success
+}
+
+int net_receive_line(socket_t sock, char *buffer, size_t buffer_size, int timeout_ms)
+{
+    size_t pos = 0;
+    char c;
+    int result;
+
+    if (!buffer || buffer_size < 3) // Need at least space for "X\r\n"
+    {
+        return -1;
+    }
+
+    while (pos < buffer_size - 1)
+    {
+        // Wait for data with timeout
+        if (timeout_ms >= 0)
+        {
+            result = net_wait_readable(sock, timeout_ms);
+            if (result <= 0)
+            {
+                return result; // Timeout or error
+            }
+        }
+
+        // Receive one character
+        result = net_receive(sock, &c, 1);
+        if (result <= 0)
+        {
+            return result; // Connection closed or error
+        }
+
+        buffer[pos++] = c;
+
+        // Check for CRLF
+        if (pos >= 2 && buffer[pos - 2] == '\r' && buffer[pos - 1] == '\n')
+        {
+            buffer[pos] = '\0';
+            return (int)pos;
+        }
+    }
+
+    // Line too long
+    buffer[buffer_size - 1] = '\0';
+    return -1;
+}
+
 int net_send(socket_t connected_socket, const void *data, size_t length)
 {
 #ifdef _WIN32
@@ -288,25 +389,6 @@ int net_send_all(socket_t connected_socket, const void *data, size_t length)
     return 0; // Success
 }
 
-int net_receive_all(socket_t connected_socket, void *buffer, size_t length)
-{
-    char *ptr = (char *)buffer;
-    size_t total_received = 0;
-
-    while (total_received < length)
-    {
-        int bytes_received = net_receive(connected_socket, ptr + total_received, length - total_received);
-        if (bytes_received <= 0)
-        {
-            // Error or connection closed before receiving all data
-            return -1;
-        }
-        total_received += bytes_received;
-    }
-
-    return 0; // Success
-}
-
 void net_close_socket(socket_t sock)
 {
 #ifdef _WIN32
@@ -314,4 +396,224 @@ void net_close_socket(socket_t sock)
 #else
     close(sock);
 #endif
+}
+
+int net_shutdown_send(socket_t sock)
+{
+#ifdef _WIN32
+    if (shutdown(sock, SD_SEND) < 0)
+    {
+        return -1;
+    }
+#else
+    if (shutdown(sock, SHUT_WR) < 0)
+    {
+        return -1;
+    }
+#endif
+    return 0;
+}
+
+int net_shutdown_recv(socket_t sock)
+{
+#ifdef _WIN32
+    if (shutdown(sock, SD_RECEIVE) < 0)
+    {
+        return -1;
+    }
+#else
+    if (shutdown(sock, SHUT_RD) < 0)
+    {
+        return -1;
+    }
+#endif
+    return 0;
+}
+
+int net_set_nonblocking(socket_t sock, int enable)
+{
+#ifdef _WIN32
+    u_long mode = enable ? 1 : 0;
+    if (ioctlsocket(sock, FIONBIO, &mode) != 0)
+    {
+        return -1;
+    }
+    return 0;
+#else
+    int flags = fcntl(sock, F_GETFL, 0);
+    if (flags == -1)
+    {
+        return -1;
+    }
+
+    if (enable)
+    {
+        flags |= O_NONBLOCK;
+    }
+    else
+    {
+        flags &= ~O_NONBLOCK;
+    }
+
+    if (fcntl(sock, F_SETFL, flags) == -1)
+    {
+        return -1;
+    }
+
+    return 0;
+#endif
+}
+
+int net_set_recv_timeout(socket_t sock, int timeout_ms)
+{
+#ifdef _WIN32
+    DWORD timeout = (DWORD)timeout_ms;
+    if (setsockopt(sock, SOL_SOCKET, SO_RCVTIMEO, (const char*)&timeout, sizeof(timeout)) < 0)
+    {
+        return -1;
+    }
+#else
+    struct timeval tv;
+    tv.tv_sec = timeout_ms / 1000;
+    tv.tv_usec = (timeout_ms % 1000) * 1000;
+    if (setsockopt(sock, SOL_SOCKET, SO_RCVTIMEO, &tv, sizeof(tv)) < 0)
+    {
+        return -1;
+    }
+#endif
+    return 0;
+}
+
+int net_set_send_timeout(socket_t sock, int timeout_ms)
+{
+#ifdef _WIN32
+    DWORD timeout = (DWORD)timeout_ms;
+    if (setsockopt(sock, SOL_SOCKET, SO_SNDTIMEO, (const char*)&timeout, sizeof(timeout)) < 0)
+    {
+        return -1;
+    }
+#else
+    struct timeval tv;
+    tv.tv_sec = timeout_ms / 1000;
+    tv.tv_usec = (timeout_ms % 1000) * 1000;
+    if (setsockopt(sock, SOL_SOCKET, SO_SNDTIMEO, &tv, sizeof(tv)) < 0)
+    {
+        return -1;
+    }
+#endif
+    return 0;
+}
+
+int net_set_tcp_nodelay(socket_t sock, int enable)
+{
+    int flag = enable ? 1 : 0;
+    if (setsockopt(sock, IPPROTO_TCP, TCP_NODELAY, (const char*)&flag, sizeof(flag)) < 0)
+    {
+        return -1;
+    }
+    return 0;
+}
+
+int net_set_keepalive(socket_t sock, int enable)
+{
+    int flag = enable ? 1 : 0;
+    if (setsockopt(sock, SOL_SOCKET, SO_KEEPALIVE, (const char*)&flag, sizeof(flag)) < 0)
+    {
+        return -1;
+    }
+    return 0;
+}
+
+int net_wait_readable(socket_t sock, int timeout_ms)
+{
+    fd_set read_fds;
+    struct timeval tv;
+    struct timeval *tv_ptr = NULL;
+
+    FD_ZERO(&read_fds);
+    FD_SET(sock, &read_fds);
+
+    if (timeout_ms >= 0)
+    {
+        tv.tv_sec = timeout_ms / 1000;
+        tv.tv_usec = (timeout_ms % 1000) * 1000;
+        tv_ptr = &tv;
+    }
+
+    int result = select((int)sock + 1, &read_fds, NULL, NULL, tv_ptr);
+
+    if (result < 0)
+    {
+        return -1; // Error
+    }
+    else if (result == 0)
+    {
+        return 0; // Timeout
+    }
+    else
+    {
+        return 1; // Readable
+    }
+}
+
+int net_wait_writable(socket_t sock, int timeout_ms)
+{
+    fd_set write_fds;
+    struct timeval tv;
+    struct timeval *tv_ptr = NULL;
+
+    FD_ZERO(&write_fds);
+    FD_SET(sock, &write_fds);
+
+    if (timeout_ms >= 0)
+    {
+        tv.tv_sec = timeout_ms / 1000;
+        tv.tv_usec = (timeout_ms % 1000) * 1000;
+        tv_ptr = &tv;
+    }
+
+    int result = select((int)sock + 1, NULL, &write_fds, NULL, tv_ptr);
+
+    if (result < 0)
+    {
+        return -1; // Error
+    }
+    else if (result == 0)
+    {
+        return 0; // Timeout
+    }
+    else
+    {
+        return 1; // Writable
+    }
+}
+
+int net_get_last_error(void)
+{
+#ifdef _WIN32
+    return WSAGetLastError();
+#else
+    return errno;
+#endif
+}
+
+const char* net_get_error_string(int error_code)
+{
+    static char buffer[256];
+
+#ifdef _WIN32
+    FormatMessageA(
+        FORMAT_MESSAGE_FROM_SYSTEM | FORMAT_MESSAGE_IGNORE_INSERTS,
+        NULL,
+        error_code,
+        MAKELANGID(LANG_NEUTRAL, SUBLANG_DEFAULT),
+        buffer,
+        sizeof(buffer),
+        NULL
+    );
+#else
+    snprintf(buffer, sizeof(buffer), "%s", strerror(error_code));
+#endif
+
+    return buffer;
 }

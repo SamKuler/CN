@@ -61,6 +61,22 @@ typedef enum
 socket_t net_create_listening_socket(net_addr_family_t family, uint16_t port, int backlog);
 
 /**
+ * @brief Creates a listening socket within a specified port range.
+ *
+ * This is useful for FTP passive mode, where a dynamic port is needed.
+ * The function tries each port in the range until it finds one that works.
+ *
+ * @param family The address family to use (IPv4, IPv6, or Unspecified).
+ * @param port_min The minimum port number to try.
+ * @param port_max The maximum port number to try.
+ * @param backlog The maximum number of pending connections to queue.
+ * @param assigned_port A pointer to store the actual port that was assigned (can be NULL).
+ * @return The listening socket descriptor on success, or INVALID_SOCKET_T on error.
+ */
+socket_t net_create_listening_socket_range(net_addr_family_t family, uint16_t port_min,
+                                           uint16_t port_max, int backlog, uint16_t *assigned_port);
+
+/**
  * @brief Accepts an incoming client connection on a listening socket.
  *
  * This function will block until a client connects.
@@ -109,6 +125,32 @@ int net_get_socket_info(socket_t sock, char *ip_buffer, size_t buffer_size, uint
 int net_receive(socket_t connected_socket, void *buffer, size_t buffer_size);
 
 /**
+ * @brief Reliably receives a specific amount of data from a connected socket.
+ *
+ * This function loops until all requested data is received or an error occurs.
+ *
+ * @param connected_socket The socket to receive data from.
+ * @param buffer The buffer to store the received data.
+ * @param length The total number of bytes to receive.
+ * @return 0 on success, -1 on failure (e.g., connection closed before all data arrived).
+ */
+int net_receive_all(socket_t connected_socket, void *buffer, size_t length);
+
+/**
+ * @brief Receives a line of text from a socket (until CRLF).
+ *
+ * This is useful for FTP control connections, which use text-based commands.
+ * The function reads until it encounters \r\n (CRLF) or the buffer is full.
+ *
+ * @param connected_socket The socket to receive data from.
+ * @param buffer The buffer to store the received line (includes CRLF).
+ * @param buffer_size The maximum size of the buffer.
+ * @param timeout_ms Timeout in milliseconds. -1 means wait indefinitely.
+ * @return The number of bytes received (including CRLF), 0 if connection closed, -1 on error or timeout.
+ */
+int net_receive_line(socket_t connected_socket, char *buffer, size_t buffer_size, int timeout_ms);
+
+/**
  * @brief Sends data to a connected socket.
  *
  * @param connected_socket The socket to send data to.
@@ -131,22 +173,115 @@ int net_send(socket_t connected_socket, const void *data, size_t length);
 int net_send_all(socket_t connected_socket, const void *data, size_t length);
 
 /**
- * @brief Reliably receives a specific amount of data from a connected socket.
- *
- * This function loops until all requested data is received or an error occurs.
- *
- * @param connected_socket The socket to receive data from.
- * @param buffer The buffer to store the received data.
- * @param length The total number of bytes to receive.
- * @return 0 on success, -1 on failure (e.g., connection closed before all data arrived).
- */
-int net_receive_all(socket_t connected_socket, void *buffer, size_t length);
-
-/**
  * @brief Closes a socket.
  *
  * @param sock The socket descriptor to close.
  */
 void net_close_socket(socket_t sock);
+
+/**
+ * @brief Shuts down the send side of a socket.
+ *
+ * After calling this, no more data can be sent on the socket.
+ *
+ * @param sock The socket descriptor.
+ * @return 0 on success, -1 on error.
+ */
+int net_shutdown_send(socket_t sock);
+
+/**
+ * @brief Shuts down the receive side of a socket.
+ *
+ * After calling this, no more data can be received on the socket.
+ *
+ * @param sock The socket descriptor.
+ * @return 0 on success, -1 on error.
+ */
+int net_shutdown_recv(socket_t sock);
+
+//  Additional utility functions
+
+/**
+ * @brief Sets a socket to non-blocking or blocking mode.
+ *
+ * @param sock The socket descriptor.
+ * @param enable 1 to enable non-blocking mode, 0 to disable.
+ * @return 0 on success, -1 on error.
+ */
+int net_set_nonblocking(socket_t sock, int enable);
+
+/**
+ * @brief Sets the receive timeout for a socket.
+ *
+ * @param sock The socket descriptor.
+ * @param timeout_ms Timeout in milliseconds. 0 means no timeout (blocking).
+ * @return 0 on success, -1 on error.
+ */
+int net_set_recv_timeout(socket_t sock, int timeout_ms);
+
+/**
+ * @brief Sets the send timeout for a socket.
+ *
+ * @param sock The socket descriptor.
+ * @param timeout_ms Timeout in milliseconds. 0 means no timeout (blocking).
+ * @return 0 on success, -1 on error.
+ */
+int net_set_send_timeout(socket_t sock, int timeout_ms);
+
+/**
+ * @brief Sets or clears the TCP_NODELAY option.
+ *
+ * When enabled, this disables Nagle's algorithm, which can reduce latency
+ * for small packets at the cost of potentially increased network traffic.
+ *
+ * @param sock The socket descriptor.
+ * @param enable 1 to enable TCP_NODELAY, 0 to disable.
+ * @return 0 on success, -1 on error.
+ */
+int net_set_tcp_nodelay(socket_t sock, int enable);
+
+/**
+ * @brief Sets or clears the SO_KEEPALIVE option.
+ *
+ * When enabled, the system will send keepalive probes to detect dead connections.
+ *
+ * @param sock The socket descriptor.
+ * @param enable 1 to enable keepalive, 0 to disable.
+ * @return 0 on success, -1 on error.
+ */
+int net_set_keepalive(socket_t sock, int enable);
+
+/**
+ * @brief Waits for a socket to become readable.
+ *
+ * @param sock The socket descriptor.
+ * @param timeout_ms Timeout in milliseconds. -1 means wait indefinitely.
+ * @return 1 if readable, 0 if timeout, -1 on error.
+ */
+int net_wait_readable(socket_t sock, int timeout_ms);
+
+/**
+ * @brief Waits for a socket to become writable.
+ *
+ * @param sock The socket descriptor.
+ * @param timeout_ms Timeout in milliseconds. -1 means wait indefinitely.
+ * @return 1 if writable, 0 if timeout, -1 on error.
+ */
+int net_wait_writable(socket_t sock, int timeout_ms);
+
+/**
+ * @brief Gets the last socket error code.
+ *
+ * @return The error code from the last socket operation.
+ */
+int net_get_last_error(void);
+
+/**
+ * @brief Gets a human-readable error message for a socket error code.
+ *
+ * @param error_code The error code (from net_get_last_error()).
+ * @return A string describing the error. The string is valid until the next call.
+ */
+const char* net_get_error_string(int error_code);
 
 #endif
