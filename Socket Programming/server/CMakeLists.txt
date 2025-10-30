@@ -12,10 +12,17 @@ if(ENABLE_COVERAGE)
     message(STATUS "Building with coverage flags")
     if(CMAKE_C_COMPILER_ID MATCHES "GNU|Clang")
         add_compile_options(-g -O0 -fprofile-arcs -ftest-coverage)
-        link_libraries(--coverage)
+        add_link_options(--coverage)
     else()
         message(WARNING "Coverage enabled but compiler is not GCC/Clang; coverage flags not set")
     endif()
+endif()
+
+# Option to enable OpenSSL for TCP/TLS & FTPs
+option(ENABLE_OPENSSL "Enable TLS Support (using OpenSSL) over TCP." ON)
+if (ENABLE_OPENSSL)
+    message(STATUS "Building with OpenSSL flags")
+    find_package(OpenSSL REQUIRED)
 endif()
 
 # Include header files.
@@ -26,6 +33,8 @@ set(SOURCES
     src/logger.c
     src/filesys.c
     src/network.c
+    src/protocol.c
+    src/command.c
 )
 
 # Create library: use shared library when coverage enabled to ensure coverage data is emitted
@@ -33,6 +42,12 @@ if(ENABLE_COVERAGE)
     add_library(ftpserver SHARED ${SOURCES})
 else()
     add_library(ftpserver STATIC ${SOURCES})
+endif()
+
+# Link OpenSSL libraries if enabled
+if(ENABLE_OPENSSL)
+    target_compile_definitions(ftpserver PUBLIC ENABLE_OPENSSL)
+    target_link_libraries(ftpserver PUBLIC OpenSSL::SSL OpenSSL::Crypto)
 endif()
 
 # Main program
