@@ -35,7 +35,7 @@ int net_init(void)
     return 0;
 }
 
-void net_shutdown(void)
+void net_cleanup(void)
 {
 #ifdef _WIN32
     WSACleanup();

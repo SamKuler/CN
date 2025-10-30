@@ -32,13 +32,13 @@ typedef int socket_t;
 int net_init(void);
 
 /**
- * @brief Shuts down the networking library.
+ * @brief Cleans up the networking library.
  *
  * On Windows, this calls WSACleanup.
  * On POSIX systems, this does nothing.
  * Should be called once when the application is exiting.
  */
-void net_shutdown(void);
+void net_cleanup(void);
 
 /**
  * @brief Defines the address family for socket creation.
