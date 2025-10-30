@@ -20,4 +20,18 @@ void get_timestamp(char *buffer, size_t size);
  */
 const char *extract_filename(const char *path);
 
+/**
+ * @brief Trims leading and trailing whitespace from a string.
+ *
+ * @param str The string to trim (modified in place).
+ */
+void trim_whitespace(char *str);
+
+/**
+ * @brief Converts a string to uppercase.
+ *
+ * @param str The string to convert (modified in place).
+ */
+void to_uppercase(char *str);
+
 #endif
