@@ -31,9 +31,9 @@
  */
 typedef struct
 {
-    char command[PROTO_MAX_CMD_NAME];  // Command name (e.g., "USER", "PASS")
-    char argument[PROTO_MAX_CMD_ARG];  // Command argument (may be empty)
-    int has_argument;                   // 1 if argument exists, 0 otherwise
+    char command[PROTO_MAX_CMD_NAME]; // Command name (e.g., "USER", "PASS")
+    char argument[PROTO_MAX_CMD_ARG]; // Command argument (may be empty)
+    int has_argument;                 // 1 if argument exists, 0 otherwise
 } proto_command_t;
 
 /**
@@ -41,9 +41,9 @@ typedef struct
  */
 typedef enum
 {
-    PROTO_TYPE_ASCII,   // ASCII mode
-    PROTO_TYPE_BINARY,  // Binary/Image mode
-    PROTO_TYPE_EBCDIC   // EBCDIC mode
+    PROTO_TYPE_ASCII,  // ASCII mode
+    PROTO_TYPE_BINARY, // Binary/Image mode
+    PROTO_TYPE_EBCDIC  // EBCDIC mode
 } proto_transfer_type_t;
 
 /**
@@ -51,9 +51,9 @@ typedef enum
  */
 typedef enum
 {
-    PROTO_MODE_STREAM,  // Stream mode (default)
-    PROTO_MODE_BLOCK,   // Block mode
-    PROTO_MODE_COMPRESSED  // Compressed mode
+    PROTO_MODE_STREAM,    // Stream mode (default)
+    PROTO_MODE_BLOCK,     // Block mode
+    PROTO_MODE_COMPRESSED // Compressed mode
 } proto_transfer_mode_t;
 
 /**
@@ -61,9 +61,9 @@ typedef enum
  */
 typedef enum
 {
-    PROTO_STRU_FILE,    // File structure (default)
-    PROTO_STRU_RECORD,  // Record structure
-    PROTO_STRU_PAGE     // Page structure
+    PROTO_STRU_FILE,   // File structure (default)
+    PROTO_STRU_RECORD, // Record structure
+    PROTO_STRU_PAGE    // Page structure
 } proto_data_structure_t;
 
 /**
@@ -71,8 +71,8 @@ typedef enum
  */
 typedef struct
 {
-    uint8_t h1, h2, h3, h4;  // Client IP address octets
-    uint8_t p1, p2;           // Client port (port = p1 * 256 + p2)
+    uint8_t h1, h2, h3, h4; // Client IP address octets
+    uint8_t p1, p2;         // Client port (port = p1 * 256 + p2)
 } proto_port_params_t;
 
 /**
@@ -80,8 +80,8 @@ typedef struct
  */
 typedef struct
 {
-    uint8_t h1, h2, h3, h4;  // Server IP address octets
-    uint8_t p1, p2;           // Server port (port = p1 * 256 + p2)
+    uint8_t h1, h2, h3, h4; // Server IP address octets
+    uint8_t p1, p2;         // Server port (port = p1 * 256 + p2)
 } proto_pasv_params_t;
 
 /**

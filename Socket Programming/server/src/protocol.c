@@ -139,9 +139,9 @@ int proto_format_pasv_response(char *buffer, size_t buffer_size, const proto_pas
         return -1;
 
     int written = snprintf(buffer, buffer_size,
-                          "227 Entering Passive Mode (%u,%u,%u,%u,%u,%u)\r\n",
-                          params->h1, params->h2, params->h3, params->h4,
-                          params->p1, params->p2);
+                           "227 Entering Passive Mode (%u,%u,%u,%u,%u,%u)\r\n",
+                           params->h1, params->h2, params->h3, params->h4,
+                           params->p1, params->p2);
 
     if (written < 0 || (size_t)written >= buffer_size)
         return -1;
@@ -246,7 +246,7 @@ int proto_port_to_address(const proto_port_params_t *params, char *ip_buffer, si
 
     // Format IP address
     int written = snprintf(ip_buffer, buffer_size, "%u.%u.%u.%u",
-                          params->h1, params->h2, params->h3, params->h4);
+                           params->h1, params->h2, params->h3, params->h4);
 
     if (written < 0 || (size_t)written >= buffer_size)
         return -1;
@@ -300,7 +300,8 @@ int proto_validate_path(const char *path)
         return 0;
 
     size_t len = strlen(path);
-    for (size_t i = 0; i < len; i++) {
+    for (size_t i = 0; i < len; i++)
+    {
         // Check for null bytes
         if (path[i] == '\0' && i < len - 1)
             return 0;

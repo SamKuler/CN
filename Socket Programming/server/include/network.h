@@ -282,6 +282,6 @@ int net_get_last_error(void);
  * @param error_code The error code (from net_get_last_error()).
  * @return A string describing the error. The string is valid until the next call.
  */
-const char* net_get_error_string(int error_code);
+const char *net_get_error_string(int error_code);
 
 #endif

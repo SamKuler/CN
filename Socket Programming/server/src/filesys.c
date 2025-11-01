@@ -154,7 +154,8 @@ static long long dir_size_recursive_win32(const char *path, int depth)
     if (hFind == INVALID_HANDLE_VALUE)
         return -1;
 
-    do {
+    do
+    {
         // Skip . and ..
         if (strcmp(find_data.cFileName, ".") == 0 ||
             strcmp(find_data.cFileName, "..") == 0)
@@ -294,7 +295,8 @@ int fs_list_directory(const char *path, fs_file_info_t *file_list, int max_files
         return -1;
 
     int count = 0;
-    do {
+    do
+    {
         // Skip . and ..
         if (strcmp(find_data.cFileName, ".") == 0 ||
             strcmp(find_data.cFileName, "..") == 0)
@@ -721,7 +723,8 @@ static int remove_directory_recursive_win32(const char *path, int depth)
         return -1;
 
     int ret = 0;
-    do {
+    do
+    {
         // Skip . and ..
         if (strcmp(find_data.cFileName, ".") == 0 ||
             strcmp(find_data.cFileName, "..") == 0)

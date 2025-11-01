@@ -468,7 +468,7 @@ int net_set_recv_timeout(socket_t sock, int timeout_ms)
 {
 #ifdef _WIN32
     DWORD timeout = (DWORD)timeout_ms;
-    if (setsockopt(sock, SOL_SOCKET, SO_RCVTIMEO, (const char*)&timeout, sizeof(timeout)) < 0)
+    if (setsockopt(sock, SOL_SOCKET, SO_RCVTIMEO, (const char *)&timeout, sizeof(timeout)) < 0)
     {
         return -1;
     }
@@ -488,7 +488,7 @@ int net_set_send_timeout(socket_t sock, int timeout_ms)
 {
 #ifdef _WIN32
     DWORD timeout = (DWORD)timeout_ms;
-    if (setsockopt(sock, SOL_SOCKET, SO_SNDTIMEO, (const char*)&timeout, sizeof(timeout)) < 0)
+    if (setsockopt(sock, SOL_SOCKET, SO_SNDTIMEO, (const char *)&timeout, sizeof(timeout)) < 0)
     {
         return -1;
     }
@@ -507,7 +507,7 @@ int net_set_send_timeout(socket_t sock, int timeout_ms)
 int net_set_tcp_nodelay(socket_t sock, int enable)
 {
     int flag = enable ? 1 : 0;
-    if (setsockopt(sock, IPPROTO_TCP, TCP_NODELAY, (const char*)&flag, sizeof(flag)) < 0)
+    if (setsockopt(sock, IPPROTO_TCP, TCP_NODELAY, (const char *)&flag, sizeof(flag)) < 0)
     {
         return -1;
     }
@@ -517,7 +517,7 @@ int net_set_tcp_nodelay(socket_t sock, int enable)
 int net_set_keepalive(socket_t sock, int enable)
 {
     int flag = enable ? 1 : 0;
-    if (setsockopt(sock, SOL_SOCKET, SO_KEEPALIVE, (const char*)&flag, sizeof(flag)) < 0)
+    if (setsockopt(sock, SOL_SOCKET, SO_KEEPALIVE, (const char *)&flag, sizeof(flag)) < 0)
     {
         return -1;
     }
@@ -597,7 +597,7 @@ int net_get_last_error(void)
 #endif
 }
 
-const char* net_get_error_string(int error_code)
+const char *net_get_error_string(int error_code)
 {
     static char buffer[256];
 
@@ -609,8 +609,7 @@ const char* net_get_error_string(int error_code)
         MAKELANGID(LANG_NEUTRAL, SUBLANG_DEFAULT),
         buffer,
         sizeof(buffer),
-        NULL
-    );
+        NULL);
 #else
     snprintf(buffer, sizeof(buffer), "%s", strerror(error_code));
 #endif

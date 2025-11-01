@@ -20,7 +20,7 @@
  *
  * This will be passed to command handlers and contains session-specific data.
  */
-typedef void* cmd_handler_context_t;
+typedef void *cmd_handler_context_t;
 
 /**
  * @brief Command handler function pointer type.

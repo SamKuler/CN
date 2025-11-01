@@ -14,7 +14,8 @@
 /**
  * @brief Structure representing a registered command handler.
  */
-typedef struct {
+typedef struct
+{
     char command[PROTO_MAX_CMD_NAME];
     cmd_handler_t handler;
     int in_use; //
@@ -30,7 +31,8 @@ static cmd_handler_entry_t g_handlers[CMD_MAX_HANDLERS];
  */
 static int g_initialized = 0;
 
-int cmd_init(void) {
+int cmd_init(void)
+{
     if (g_initialized)
         return 0;
 
@@ -41,7 +43,8 @@ int cmd_init(void) {
     return 0;
 }
 
-void cmd_cleanup(void) {
+void cmd_cleanup(void)
+{
     if (!g_initialized)
         return;
 
@@ -51,7 +54,8 @@ void cmd_cleanup(void) {
     g_initialized = 0;
 }
 
-int cmd_register_handler(const char *command, cmd_handler_t handler) {
+int cmd_register_handler(const char *command, cmd_handler_t handler)
+{
     if (!g_initialized)
         return -1;
 
@@ -65,8 +69,10 @@ int cmd_register_handler(const char *command, cmd_handler_t handler) {
     to_uppercase(cmd_upper);
 
     // Check if command is already registered
-    for (int i = 0; i < CMD_MAX_HANDLERS; i++) {
-        if (g_handlers[i].in_use && strcmp(g_handlers[i].command, cmd_upper) == 0) {
+    for (int i = 0; i < CMD_MAX_HANDLERS; i++)
+    {
+        if (g_handlers[i].in_use && strcmp(g_handlers[i].command, cmd_upper) == 0)
+        {
             // Update existing handler
             g_handlers[i].handler = handler;
             return 0;
@@ -74,8 +80,10 @@ int cmd_register_handler(const char *command, cmd_handler_t handler) {
     }
 
     // Find empty slot
-    for (int i = 0; i < CMD_MAX_HANDLERS; i++) {
-        if (!g_handlers[i].in_use) {
+    for (int i = 0; i < CMD_MAX_HANDLERS; i++)
+    {
+        if (!g_handlers[i].in_use)
+        {
             strncpy(g_handlers[i].command, cmd_upper, PROTO_MAX_CMD_NAME - 1);
             g_handlers[i].command[PROTO_MAX_CMD_NAME - 1] = '\0';
             g_handlers[i].handler = handler;
@@ -88,7 +96,8 @@ int cmd_register_handler(const char *command, cmd_handler_t handler) {
     return -1;
 }
 
-int cmd_unregister_handler(const char *command) {
+int cmd_unregister_handler(const char *command)
+{
     if (!g_initialized)
         return -1;
 
@@ -102,8 +111,10 @@ int cmd_unregister_handler(const char *command) {
     to_uppercase(cmd_upper);
 
     // Find and remove handler
-    for (int i = 0; i < CMD_MAX_HANDLERS; i++) {
-        if (g_handlers[i].in_use && strcmp(g_handlers[i].command, cmd_upper) == 0) {
+    for (int i = 0; i < CMD_MAX_HANDLERS; i++)
+    {
+        if (g_handlers[i].in_use && strcmp(g_handlers[i].command, cmd_upper) == 0)
+        {
             g_handlers[i].in_use = 0;
             g_handlers[i].handler = NULL;
             memset(g_handlers[i].command, 0, PROTO_MAX_CMD_NAME);
@@ -114,7 +125,8 @@ int cmd_unregister_handler(const char *command) {
     return -1;
 }
 
-int cmd_dispatch(cmd_handler_context_t context, const proto_command_t *cmd) {
+int cmd_dispatch(cmd_handler_context_t context, const proto_command_t *cmd)
+{
     if (!g_initialized)
         return -1;
 
@@ -122,8 +134,10 @@ int cmd_dispatch(cmd_handler_context_t context, const proto_command_t *cmd) {
         return -1;
 
     // Find matching handler
-    for (int i = 0; i < CMD_MAX_HANDLERS; i++) {
-        if (g_handlers[i].in_use && strcmp(g_handlers[i].command, cmd->command) == 0) {
+    for (int i = 0; i < CMD_MAX_HANDLERS; i++)
+    {
+        if (g_handlers[i].in_use && strcmp(g_handlers[i].command, cmd->command) == 0)
+        {
             // Call handler
             return g_handlers[i].handler(context, cmd);
         }
@@ -133,7 +147,8 @@ int cmd_dispatch(cmd_handler_context_t context, const proto_command_t *cmd) {
     return -1;
 }
 
-int cmd_is_registered(const char *command) {
+int cmd_is_registered(const char *command)
+{
     if (!g_initialized)
         return 0;
 
@@ -147,7 +162,8 @@ int cmd_is_registered(const char *command) {
     to_uppercase(cmd_upper);
 
     // Check if handler exists
-    for (int i = 0; i < CMD_MAX_HANDLERS; i++) {
+    for (int i = 0; i < CMD_MAX_HANDLERS; i++)
+    {
         if (g_handlers[i].in_use && strcmp(g_handlers[i].command, cmd_upper) == 0)
             return 1;
     }
@@ -155,12 +171,14 @@ int cmd_is_registered(const char *command) {
     return 0;
 }
 
-int cmd_get_handler_count(void) {
+int cmd_get_handler_count(void)
+{
     if (!g_initialized)
         return 0;
 
     int count = 0;
-    for (int i = 0; i < CMD_MAX_HANDLERS; i++) {
+    for (int i = 0; i < CMD_MAX_HANDLERS; i++)
+    {
         if (g_handlers[i].in_use)
             count++;
     }
@@ -176,7 +194,7 @@ int cmd_get_handler_count(void) {
 extern int cmd_handle_user(cmd_handler_context_t context, const proto_command_t *cmd); // USERNAME
 extern int cmd_handle_pass(cmd_handler_context_t context, const proto_command_t *cmd); // PASSWORD
 extern int cmd_handle_acct(cmd_handler_context_t context, const proto_command_t *cmd); // ACCOUNT
-extern int cmd_handle_cwd(cmd_handler_context_t context, const proto_command_t *cmd); // CHANGE WORKING DIRECTORY
+extern int cmd_handle_cwd(cmd_handler_context_t context, const proto_command_t *cmd);  // CHANGE WORKING DIRECTORY
 extern int cmd_handle_cdup(cmd_handler_context_t context, const proto_command_t *cmd); // CHANGE TO PARENT DIRECTORY
 extern int cmd_handle_smnt(cmd_handler_context_t context, const proto_command_t *cmd); // STRUCTURE MOUNT
 
@@ -203,9 +221,9 @@ extern int cmd_handle_appe(cmd_handler_context_t context, const proto_command_t 
 extern int cmd_handle_rnfr(cmd_handler_context_t context, const proto_command_t *cmd); // RENAME FROM
 extern int cmd_handle_rnto(cmd_handler_context_t context, const proto_command_t *cmd); // RENAME TO
 extern int cmd_handle_dele(cmd_handler_context_t context, const proto_command_t *cmd); // DELETE
-extern int cmd_handle_rmd(cmd_handler_context_t context, const proto_command_t *cmd); // REMOVE DIRECTORY
-extern int cmd_handle_mkd(cmd_handler_context_t context, const proto_command_t *cmd); // MAKE DIRECTORY
-extern int cmd_handle_pwd(cmd_handler_context_t context, const proto_command_t *cmd); // PRINT WORKING DIRECTORY
+extern int cmd_handle_rmd(cmd_handler_context_t context, const proto_command_t *cmd);  // REMOVE DIRECTORY
+extern int cmd_handle_mkd(cmd_handler_context_t context, const proto_command_t *cmd);  // MAKE DIRECTORY
+extern int cmd_handle_pwd(cmd_handler_context_t context, const proto_command_t *cmd);  // PRINT WORKING DIRECTORY
 extern int cmd_handle_abor(cmd_handler_context_t context, const proto_command_t *cmd); // ABORT
 
 // Informational commands
@@ -217,8 +235,8 @@ extern int cmd_handle_help(cmd_handler_context_t context, const proto_command_t 
 extern int cmd_handle_site(cmd_handler_context_t context, const proto_command_t *cmd); // SITE PARAMETERS
 extern int cmd_handle_noop(cmd_handler_context_t context, const proto_command_t *cmd); // NO OPERATION
 
-
-int cmd_register_standard_handlers(void) {
+int cmd_register_standard_handlers(void)
+{
     if (!g_initialized)
         return -1;
 
