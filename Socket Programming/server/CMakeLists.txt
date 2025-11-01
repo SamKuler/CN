@@ -35,6 +35,7 @@ set(SOURCES
     src/network.c
     src/protocol.c
     src/command.c
+    src/session.c
 )
 
 # Create library: use shared library when coverage enabled to ensure coverage data is emitted
