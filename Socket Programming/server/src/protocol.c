@@ -295,21 +295,19 @@ int proto_validate_path(const char *path)
     if (strlen(path) == 0)
         return 1;
 
-    // Check for absolute paths (both Unix and Windows style)
-    if (path[0] == '/' || path[0] == '\\')
-        return 0;
-
-    // Windows drive letter check (e.g., C:, D:)
-    if (strlen(path) >= 2 && path[1] == ':')
-        return 0;
-
     // Check for parent directory references
     if (strstr(path, "..") != NULL)
         return 0;
 
-    // Check for null bytes
-    if (strchr(path, '\0') != (path + strlen(path)))
-        return 0;
+    size_t len = strlen(path);
+    for (size_t i = 0; i < len; i++) {
+        // Check for null bytes
+        if (path[i] == '\0' && i < len - 1)
+            return 0;
+        // Check for control characters
+        if (path[i] < 32 && path[i] != '\t') // Allow tab
+            return 0;
+    }
 
     return 1;
 }
