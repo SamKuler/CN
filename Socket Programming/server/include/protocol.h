@@ -235,7 +235,7 @@ int proto_normalize_path(char *path, size_t max_length);
 #define PROTO_RESP_FILE_STATUS_OK       150
 
 #define PROTO_RESP_OK                   200
-#define PROTO_RESP_COMMAND_NOT_IMPL     202
+#define PROTO_RESP_COMMAND_SUPERFLUOUS  202
 #define PROTO_RESP_SYSTEM_STATUS        211
 #define PROTO_RESP_DIR_STATUS           212
 #define PROTO_RESP_FILE_STATUS          213
@@ -263,6 +263,7 @@ int proto_normalize_path(char *path, size_t max_length);
 
 #define PROTO_RESP_SYNTAX_ERROR         500
 #define PROTO_RESP_SYNTAX_ERROR_PARAM   501
+#define PROTO_RESP_COMMAND_NOT_IMPL     502
 #define PROTO_RESP_BAD_COMMAND_SEQUENCE 503
 #define PROTO_RESP_COMMAND_NOT_IMPL_PARAM 504
 #define PROTO_RESP_NOT_LOGGED_IN        530

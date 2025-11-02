@@ -54,7 +54,7 @@ static void *client_thread(void *arg)
     LOG_INFO("Client thread started for %s:%u", session->client_ip, session->client_port);
 
     // Send welcome message (220)
-    if (session_send_response(session, 220, "FTP Server Ready") != 0)
+    if (session_send_response(session, PROTO_RESP_SERVICE_READY, "FTP Server Ready") != 0)
     {
         LOG_ERROR("Failed to send welcome message");
         session_destroy(session);
@@ -101,7 +101,7 @@ static void *client_thread(void *arg)
         if (proto_parse_command(command_buffer, &cmd) != 0)
         {
             LOG_WARN("Failed to parse command: %s", command_buffer);
-            session_send_response(session, 500, "Syntax error, command unrecognized");
+            session_send_response(session, PROTO_RESP_SYNTAX_ERROR, "Syntax error, command unrecognized");
             continue;
         }
 
@@ -116,7 +116,7 @@ static void *client_thread(void *arg)
             if (!cmd_is_registered(cmd.command))
             {
                 LOG_WARN("Unknown command: %s", cmd.command);
-                session_send_response(session, 502, "Command not implemented");
+                session_send_response(session, PROTO_RESP_COMMAND_NOT_IMPL, "Command not implemented");
             }
             else
             {
@@ -279,7 +279,7 @@ int server_run(void)
             // Session has not been established yet,
             // use raw proto_format_response() to generate message.
             char busy_response[PROTO_MAX_RESPONSE_LINE];
-            proto_format_response(busy_response, sizeof(busy_response), 421, "Service not available, too many connections");
+            proto_format_response(busy_response, sizeof(busy_response), PROTO_RESP_SERVICE_NOT_AVAIL, "Service not available, too many connections");
             net_send_all(client_socket, busy_response, strlen(busy_response));
 
             // Close connection
@@ -314,7 +314,7 @@ int server_run(void)
             pthread_mutex_lock(&g_connection_mutex);
             g_current_connections--;
             pthread_mutex_unlock(&g_connection_mutex);
-            
+
             continue;
         }
 
