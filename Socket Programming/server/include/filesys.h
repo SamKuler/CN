@@ -7,14 +7,25 @@
  *
  * TODO: Error codes are intended to be used afterward.
  *
- * @version 0.1
- * @date 2025-10-15
+ * @version 0.2
+ * @date 2025-11-2
  *
  */
 #ifndef FILESYS_H
 #define FILESYS_H
 
 #define MAX_FILENAME_LEN 256
+#include <time.h>
+
+#ifdef _WIN32
+#include <stdint.h>
+typedef uint32_t mode_t;
+typedef uint32_t nlink_t;
+typedef uint32_t uid_t;
+typedef uint32_t gid_t;
+#else
+#include <sys/types.h>
+#endif
 
 // Define file types: File, Directory, Unknown
 typedef enum
@@ -28,10 +39,15 @@ typedef enum
 // File information struct. Include filename, filesize and filetype.
 typedef struct
 {
-    char name[MAX_FILENAME_LEN]; // File or directory name
-    fs_file_type_t type;         // Type: file, directory, or unknown
-    long long size;              // File size in bytes (0 for directories)
-    time_t last_modified;        // Last modification timestamp
+    char name[MAX_FILENAME_LEN];        // File or directory name
+    fs_file_type_t type;                // Type: file, directory, or unknown
+    long long size;                     // File size in bytes (0 for directories)
+    time_t last_modified;               // Last modification timestamp
+    mode_t mode;                        // File permissions and type
+    nlink_t nlink;                      // Number of hard links
+    uid_t uid;                          // User ID of owner
+    gid_t gid;                          // Group ID of owner
+    char link_target[MAX_FILENAME_LEN]; // Target path for symbolic links
 } fs_file_info_t;
 
 /**

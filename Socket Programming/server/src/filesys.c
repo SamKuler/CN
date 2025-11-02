@@ -2,8 +2,8 @@
  * @file filesys.c
  * @brief Implementations for filesystem helper functions.
  *
- * @version 0.1
- * @date 2025-10-19
+ * @version 0.2
+ * @date 2025-11-2
  *
  */
 #include "filesys.h"
@@ -24,13 +24,15 @@
 #include <sys/types.h>
 #include <stdio.h>
 #include <string.h>
+#include <pwd.h>
+#include <grp.h>
 #endif
 
 #ifndef PATH_MAX
 #define PATH_MAX 4096
 #endif
 
-/* Maximum recursion depth to prevent stack overflow and infinite loops */
+// Maximum recursion depth to prevent stack overflow and infinite loops
 #define MAX_RECURSION_DEPTH 256
 
 int fs_join_path(char *dest, long long dest_size, const char *dir, const char *name)
@@ -268,7 +270,7 @@ long long fs_get_directory_size(const char *path)
     return dir_size_recursive_win32(path, 0);
 #else
     struct stat st;
-    /* Use lstat to check if path itself is a symlink */
+    // Use lstat to check if path itself is a symlink
     if (lstat(path, &st) != 0)
         return -1;
 
@@ -317,8 +319,8 @@ int fs_list_directory(const char *path, fs_file_info_t *file_list, int max_files
         else
             file_list[count].type = FS_TYPE_FILE;
 
-        // Get file size (only for regular files)
-        if (file_list[count].type == FS_TYPE_FILE)
+        // Get file size (for regular files and symlinks)
+        if (file_list[count].type == FS_TYPE_FILE || file_list[count].type == FS_TYPE_SYMLINK)
         {
             LARGE_INTEGER file_size;
             file_size.HighPart = find_data.nFileSizeHigh;
@@ -347,6 +349,75 @@ int fs_list_directory(const char *path, fs_file_info_t *file_list, int max_files
         };
         file_list[count].last_modified = mktime(&tm_info);
 
+        // Build full path for additional operations
+        char child_path[PATH_MAX];
+        fs_join_path(child_path, PATH_MAX, path, find_data.cFileName);
+
+        // Set mode (permissions) for Windows
+        file_list[count].mode = 0;
+        if (file_list[count].type == FS_TYPE_DIR)
+        {
+            file_list[count].mode = S_IFDIR | S_IRUSR | S_IXUSR | S_IRGRP | S_IXGRP | S_IROTH | S_IXOTH;
+            // Directories are writable unless read-only
+            if (!(find_data.dwFileAttributes & FILE_ATTRIBUTE_READONLY))
+            {
+                file_list[count].mode |= S_IWUSR;
+            }
+        }
+        else if (file_list[count].type == FS_TYPE_FILE)
+        {
+            file_list[count].mode = S_IFREG | S_IRUSR | S_IRGRP | S_IROTH;
+
+            // Check if file is writable
+            if (!(find_data.dwFileAttributes & FILE_ATTRIBUTE_READONLY))
+            {
+                file_list[count].mode |= S_IWUSR;
+            }
+
+            // Check if file is executable (by extension)
+            const char *ext = strrchr(find_data.cFileName, '.');
+            if (ext != NULL)
+            {
+                if (_stricmp(ext, ".exe") == 0 || _stricmp(ext, ".bat") == 0 ||
+                    _stricmp(ext, ".cmd") == 0 || _stricmp(ext, ".com") == 0)
+                {
+                    file_list[count].mode |= S_IXUSR | S_IXGRP | S_IXOTH;
+                }
+            }
+        }
+        else if (file_list[count].type == FS_TYPE_SYMLINK)
+        {
+            file_list[count].mode = S_IFLNK | S_IRWXU | S_IRWXG | S_IRWXO;
+        }
+
+        // Get actual hard link count
+        file_list[count].nlink = 1; // Default
+        HANDLE hFile = CreateFileA(child_path, 0, FILE_SHARE_READ | FILE_SHARE_WRITE,
+                                   NULL, OPEN_EXISTING,
+                                   FILE_FLAG_BACKUP_SEMANTICS, NULL);
+        if (hFile != INVALID_HANDLE_VALUE)
+        {
+            BY_HANDLE_FILE_INFORMATION fileInfo;
+            if (GetFileInformationByHandle(hFile, &fileInfo))
+            {
+                file_list[count].nlink = fileInfo.nNumberOfLinks;
+            }
+            CloseHandle(hFile);
+        }
+
+        // Use non-zero default values for uid/gid
+        file_list[count].uid = 1000; // Default user ID
+        file_list[count].gid = 1000; // Default group ID
+
+        // Symlinks
+        file_list[count].link_target[0] = '\0';
+        if (file_list[count].type == FS_TYPE_SYMLINK)
+        {
+            // Reading reparse points on Windows is complex and requires additional APIs
+            // For now, leave it empty - could be enhanced later
+            file_list[count].link_target[0] = '\0';
+        }
+
         count++;
     } while (FindNextFileA(hFind, &find_data));
 
@@ -369,7 +440,7 @@ int fs_list_directory(const char *path, fs_file_info_t *file_list, int max_files
             continue; // skip overly long names
 
         struct stat st;
-        /* Use lstat to get info about symlinks themselves */
+        // Use lstat to get info about symlinks themselves
         if (lstat(childpath, &st) != 0)
             continue; // skip entries we can't stat
 
@@ -386,8 +457,32 @@ int fs_list_directory(const char *path, fs_file_info_t *file_list, int max_files
         else
             file_list[count].type = FS_TYPE_UNKNOWN;
 
-        file_list[count].size = S_ISREG(st.st_mode) ? (long long)st.st_size : 0;
+        // For regular files and symlinks, record the size
+        // For symlinks, st_size represents the length of the target path
+        file_list[count].size = (S_ISREG(st.st_mode) || S_ISLNK(st.st_mode)) ? (long long)st.st_size : 0;
         file_list[count].last_modified = st.st_mtime; // Set last modified time
+        file_list[count].mode = st.st_mode;
+        file_list[count].nlink = st.st_nlink;
+        file_list[count].uid = st.st_uid;
+        file_list[count].gid = st.st_gid;
+
+        // For symbolic links, read the target path
+        if (S_ISLNK(st.st_mode))
+        {
+            ssize_t len = readlink(childpath, file_list[count].link_target, sizeof(file_list[count].link_target) - 1);
+            if (len != -1)
+            {
+                file_list[count].link_target[len] = '\0';
+            }
+            else
+            {
+                file_list[count].link_target[0] = '\0'; // Error or not a symlink
+            }
+        }
+        else
+        {
+            file_list[count].link_target[0] = '\0'; // Not a symlink
+        }
 
         count++;
     }
@@ -830,7 +925,7 @@ static int remove_directory_recursive(const char *path, int depth)
         }
 
         struct stat st;
-        /* Use lstat to not follow symbolic links */
+        // Use lstat to not follow symbolic links
         if (lstat(childpath, &st) != 0)
         {
             ret = -1;
@@ -839,7 +934,7 @@ static int remove_directory_recursive(const char *path, int depth)
 
         if (S_ISLNK(st.st_mode))
         {
-            /* Remove symlink itself, don't follow it */
+            // Remove symlink itself, don't follow it
             if (unlink(childpath) != 0)
             {
                 ret = -1;
