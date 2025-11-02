@@ -1,8 +1,8 @@
 /**
  * @file server.c
  * @brief FTP Server core functionality implementation
- * @version 0.1
- * @date 2025-11-02
+ * @version 0.2
+ * @date 2025-11-03
  */
 
 #include "server.h"
@@ -12,6 +12,7 @@
 #include "command.h"
 #include "protocol.h"
 #include "filesys.h"
+#include "auth.h"
 
 #include <stdio.h>
 #include <stdlib.h>
@@ -176,10 +177,26 @@ int server_init(const server_config_t *config)
         return -1;
     }
 
+    // Initialize authentication module
+    if (auth_init() != 0)
+    {
+        LOG_ERROR("Failed to initialize authentication module");
+        net_cleanup();
+        return -1;
+    }
+
+    // Enable anonymous login by default and set default home directory
+    auth_set_anonymous_enabled(1);
+    auth_set_anonymous_defaults("/pub", AUTH_PERM_READ);
+
+    // Try to load user database (optional, will warn if file doesn't exist)
+    auth_load_users("users.db");
+
     // Initialize command module
     if (cmd_init() != 0)
     {
         LOG_ERROR("Failed to initialize command module");
+        auth_cleanup();
         net_cleanup();
         return -1;
     }
@@ -189,6 +206,7 @@ int server_init(const server_config_t *config)
     {
         LOG_ERROR("Failed to register command handlers");
         cmd_cleanup();
+        auth_cleanup();
         net_cleanup();
         return -1;
     }
@@ -203,6 +221,7 @@ int server_init(const server_config_t *config)
     {
         LOG_ERROR("Failed to create listening socket on port %u", g_config.port);
         cmd_cleanup();
+        auth_cleanup();
         net_cleanup();
         return -1;
     }
@@ -353,6 +372,7 @@ void server_cleanup(void)
     }
 
     cmd_cleanup();
+    auth_cleanup();
     net_cleanup();
 
     g_server_running = 0;

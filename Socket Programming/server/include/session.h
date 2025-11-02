@@ -1,14 +1,15 @@
 /**
  * @file session.h
  * @brief FTP session management and state tracking
- * @version 0.1
- * @date 2025-10-31
+ * @version 0.2
+ * @date 2025-11-03
  */
 #ifndef SESSION_H
 #define SESSION_H
 
 #include "network.h"
 #include "protocol.h"
+#include "auth.h"
 #include <stdint.h>
 #include <pthread.h>
 
@@ -59,10 +60,12 @@ typedef struct
     session_state_t state;               // Current session state
     char username[SESSION_MAX_USERNAME]; // Username (if authenticated)
     int authenticated;                   // 1 if authenticated, 0 otherwise
+    auth_permission_t permissions;       // User permissions (from auth module)
 
     // Directory management
     char root_dir[SESSION_MAX_PATH];    // Root directory (chroot)
     char current_dir[SESSION_MAX_PATH]; // Current working directory (relative to root)
+    char user_home_dir[SESSION_MAX_PATH]; // User's home directory (from auth module)
 
     // Transfer parameters
     proto_transfer_type_t transfer_type;   // ASCII or Binary. EBCDIC is rarely used
@@ -128,10 +131,38 @@ int session_set_user(session_t *session, const char *username);
 /**
  * @brief Marks the session as authenticated.
  *
+ * It verifies the username and password, retrieves user info,
+ * and sets up the user's home directory and permissions.
+ *
  * @param session Pointer to session
+ * @param password The password to authenticate with
  * @return 0 on success, -1 on error
  */
-int session_authenticate(session_t *session);
+int session_authenticate(session_t *session, const char *password);
+
+/**
+ * @brief Checks if the user has specific permissions.
+ *
+ * @param session Pointer to session
+ * @param permission The permission flags to check
+ * @return 1 if user has the permission, 0 otherwise
+ */
+int session_has_permission(session_t *session, auth_permission_t permission);
+
+/**
+ * @brief Checks if user can access a given path (session-relative).
+ *
+ * This function enforces path-based access control:
+ * - Admin users (AUTH_PERM_ADMIN) can access any path
+ * - Regular users can only access paths within their home directory
+ * - Checks both the path itself and required operation permission
+ *
+ * @param session Pointer to session
+ * @param path Path to check (relative to session root, e.g., "/users/bob/file.txt")
+ * @param required_permission The permission needed for this operation (READ, WRITE, etc.)
+ * @return 1 if access is allowed, 0 if denied
+ */
+int session_check_path_access(session_t *session, const char *path, auth_permission_t required_permission);
 
 /**
  * @brief Changes the current working directory.

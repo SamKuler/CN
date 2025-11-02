@@ -1,0 +1,22 @@
+# FTP User Database
+# Format: username:password_hash:home_dir:permissions
+# 
+# home_dir should be relative to root_dir and start with /
+# permissions are hex values (bitwise OR of permission flags):
+#   0x01 = READ      - Read files and list directories
+#   0x02 = WRITE     - Write and upload files
+#   0x04 = DELETE    - Delete files
+#   0x08 = RENAME    - Rename files and directories
+#   0x10 = MKDIR     - Create directories
+#   0x20 = RMDIR     - Remove directories
+#   0x40 = ADMIN     - Administrative operations
+#   0xFF = ALL       - All permissions
+#
+# Example entries:
+# admin:0000000000000000000000000000000000000000000000000000000000007961:/admin:255
+# user1:0000000000000000000000000000000000000000000000000000000000007961:/users/user1:3
+# readonly:0000000000000000000000000000000000000000000000000000000000007961:/pub:1
+#
+# Anonymous user can be defined here or will use default settings (/pub, READ only)
+# anonymous::/pub:1
+

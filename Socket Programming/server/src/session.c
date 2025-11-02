@@ -1,10 +1,11 @@
 /**
  * @file session.c
  * @brief FTP session management implementation
- * @version 0.1
- * @date 2025-10-31
+ * @version 0.2
+ * @date 2025-11-03
  */
 #include "session.h"
+#include "auth.h"
 #include "logger.h"
 #include "filesys.h"
 #include "utils.h"
@@ -47,6 +48,8 @@ session_t *session_create(socket_t control_socket,
     // Set initial state
     session->state = SESSION_STATE_CONNECTED;
     session->authenticated = 0;
+    session->permissions = AUTH_PERM_NONE;
+    
 
     // Set directory information
     strncpy(session->root_dir, root_dir, sizeof(session->root_dir) - 1);
@@ -59,6 +62,7 @@ session_t *session_create(socket_t control_socket,
     }
 
     strcpy(session->current_dir, "/"); // Start at root
+    memset(session->user_home_dir, 0, sizeof(session->user_home_dir)); // No home dir yet
 
     // Set default transfer parameters
     session->transfer_type = PROTO_TYPE_ASCII;
@@ -135,23 +139,166 @@ int session_set_user(session_t *session, const char *username)
     return 0;
 }
 
-int session_authenticate(session_t *session)
+int session_authenticate(session_t *session, const char *password)
 {
-    if (!session)
+    if (!session || !password)
     {
         return -1;
     }
 
     pthread_mutex_lock(&session->lock);
 
+    // Verify credentials
+    if (!auth_authenticate(session->username, password))
+    {
+        pthread_mutex_unlock(&session->lock);
+        LOG_WARN("Authentication failed for user '%s' from %s:%u",
+                 session->username, session->client_ip, session->client_port);
+        return -1;
+    }
+
+    // Get user information
+    const auth_user_t *user = auth_get_user(session->username);
+    if (!user)
+    {
+        pthread_mutex_unlock(&session->lock);
+        LOG_ERROR("Failed to get user info after successful authentication for '%s'",
+                  session->username);
+        return -1;
+    }
+
+    // Set user permissions and home directory
+    session->permissions = user->permissions;
+    strncpy(session->user_home_dir, user->home_dir, sizeof(session->user_home_dir) - 1);
+    session->user_home_dir[sizeof(session->user_home_dir) - 1] = '\0';
+
+    // Mark as authenticated
     session->authenticated = 1;
     session->state = SESSION_STATE_AUTHENTICATED;
 
+    // Try to change to user's home directory if specified
+    if (session->user_home_dir[0] != '\0')
+    {
+        char absolute_home[SESSION_MAX_PATH];
+        const char *home_rel = session->user_home_dir;
+        
+        // Skip leading '/' if present, as fs_join_path will add separators
+        if (home_rel[0] == '/')
+        {
+            home_rel++;
+        }
+        
+        // Build absolute path to home directory
+        if (fs_join_path(absolute_home, sizeof(absolute_home),
+                        session->root_dir, home_rel) == 0)
+        {
+            // Check if home directory exists
+            if (fs_is_directory(absolute_home))
+            {
+                // Set current directory to home directory (with leading /)
+                strncpy(session->current_dir, session->user_home_dir, sizeof(session->current_dir) - 1);
+                session->current_dir[sizeof(session->current_dir) - 1] = '\0';
+                LOG_DEBUG("Changed to home directory: %s", session->current_dir);
+            }
+            else
+            {
+                LOG_WARN("User home directory does not exist: %s", absolute_home);
+            }
+        }
+    }
+
     pthread_mutex_unlock(&session->lock);
 
-    LOG_INFO("Session authenticated for user '%s' from %s:%u",
-             session->username, session->client_ip, session->client_port);
+    LOG_INFO("Session authenticated for user '%s' from %s:%u (permissions: 0x%02X)",
+             session->username, session->client_ip, session->client_port, session->permissions);
 
+    return 0;
+}
+
+int session_has_permission(session_t *session, auth_permission_t permission)
+{
+    if (!session)
+    {
+        return 0;
+    }
+
+    if (!session->authenticated)
+    {
+        return 0;
+    }
+
+    pthread_mutex_lock(&session->lock);
+    int has_perm = (session->permissions & permission) == permission;
+    pthread_mutex_unlock(&session->lock);
+
+    return has_perm;
+}
+
+int session_check_path_access(session_t *session, const char *path, auth_permission_t required_permission)
+{
+    if (!session || !path)
+    {
+        return 0;
+    }
+
+    if (!session->authenticated)
+    {
+        return 0;
+    }
+
+    pthread_mutex_lock(&session->lock);
+
+    // Admin users can access any path
+    if (session->permissions & AUTH_PERM_ADMIN)
+    {
+        pthread_mutex_unlock(&session->lock);
+        return 1;
+    }
+
+    // Check if user has the required permission
+    if ((session->permissions & required_permission) != required_permission)
+    {
+        pthread_mutex_unlock(&session->lock);
+        LOG_DEBUG("User '%s' lacks permission 0x%02X for path '%s'",
+                  session->username, required_permission, path);
+        return 0;
+    }
+
+    // Normalize the target path
+    char normalized_path[SESSION_MAX_PATH];
+    if (normalize_and_validate_path(session->current_dir, path,
+                                    normalized_path, sizeof(normalized_path)) != 0)
+    {
+        pthread_mutex_unlock(&session->lock);
+        LOG_WARN("Invalid path in access check: %s", path);
+        return 0;
+    }
+
+    // Check if path is within user's home directory
+    // Both paths should start with '/'
+    if (session->user_home_dir[0] == '\0')
+    {
+        // No home directory restriction
+        pthread_mutex_unlock(&session->lock);
+        return 1;
+    }
+
+    size_t home_len = strlen(session->user_home_dir);
+    
+    // Check if normalized_path starts with user_home_dir
+    if (strncmp(normalized_path, session->user_home_dir, home_len) == 0)
+    {
+        // Path must either be exactly the home dir, or start with home_dir/
+        if (normalized_path[home_len] == '\0' || normalized_path[home_len] == '/')
+        {
+            pthread_mutex_unlock(&session->lock);
+            return 1;
+        }
+    }
+
+    pthread_mutex_unlock(&session->lock);
+    LOG_WARN("User '%s' attempted to access path outside home directory: %s (home: %s)",
+             session->username, normalized_path, session->user_home_dir);
     return 0;
 }
 
@@ -175,6 +322,16 @@ int session_change_directory(session_t *session, const char *path)
         LOG_WARN("Invalid path in change_directory: %s", path);
         return -1;
     }
+
+    // Check path access permission (READ permission needed to list/enter directory)
+    // Temporarily unlock to call session_check_path_access
+    pthread_mutex_unlock(&session->lock);
+    if (!session_check_path_access(session, new_path, AUTH_PERM_READ))
+    {
+        LOG_WARN("Access denied for user '%s' to directory: %s", session->username, new_path);
+        return -1;
+    }
+    pthread_mutex_lock(&session->lock);
 
     // Build absolute filesystem path
     // when joining with root_dir, letting fs_join_path handle platform-specific separators

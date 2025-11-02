@@ -38,6 +38,7 @@ set(SOURCES
     src/session.c
     src/transfer.c
     src/server.c
+    src/auth.c
 )
 
 # Create library: use shared library when coverage enabled to ensure coverage data is emitted
