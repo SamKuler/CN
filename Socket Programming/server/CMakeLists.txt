@@ -39,6 +39,7 @@ set(SOURCES
     src/transfer.c
     src/server.c
     src/auth.c
+    src/handler.c
 )
 
 # Create library: use shared library when coverage enabled to ensure coverage data is emitted
