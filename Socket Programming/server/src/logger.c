@@ -46,33 +46,33 @@ static struct
     log_level_t level; // Minimum log level
     int initialized;   // To avoid reinit
     pthread_mutex_t lock;
-} logger = {NULL, LOG_LEVEL_INFO, 0, PTHREAD_MUTEX_INITIALIZER};
+} g_logger = {NULL, LOG_LEVEL_INFO, 0, PTHREAD_MUTEX_INITIALIZER};
 
 int logger_init(const char *log_file, log_level_t level)
 {
-    if (logger.initialized)
+    if (g_logger.initialized)
     {
         logger_close(); // Close for reopen.
     }
 
     if (log_file)
     {
-        logger.fp = fopen(log_file, "a");
-        if (!logger.fp)
+        g_logger.fp = fopen(log_file, "a");
+        if (!g_logger.fp)
         {
             fprintf(stderr, "Failed to open log file: %s\n", log_file);
             return -1;
         }
         // Set line buffering to ensure timely log writing
-        setvbuf(logger.fp, NULL, _IOLBF, 0);
+        setvbuf(g_logger.fp, NULL, _IOLBF, 0);
     }
     else
     {
-        logger.fp = stdout;
+        g_logger.fp = stdout;
     }
 
-    logger.level = level;
-    logger.initialized = 1;
+    g_logger.level = level;
+    g_logger.initialized = 1;
 
     return 0;
 }
@@ -87,7 +87,7 @@ void logger_log(log_level_t level, const char *filename,
         return;
     }
 
-    if (!logger.initialized || level < logger.level)
+    if (!g_logger.initialized || level < g_logger.level)
     {
         return;
     }
@@ -99,65 +99,65 @@ void logger_log(log_level_t level, const char *filename,
     // Get filename
     const char *ex_filename = extract_filename(filename);
 
-    pthread_mutex_lock(&logger.lock);
+    pthread_mutex_lock(&g_logger.lock);
 
     // Double-check
-    if (!logger.initialized || !logger.fp)
+    if (!g_logger.initialized || !g_logger.fp)
     {
-        pthread_mutex_unlock(&logger.lock);
+        pthread_mutex_unlock(&g_logger.lock);
         return;
     }
 
-    int in_tty = (logger.fp == stdout || logger.fp == stderr) && isatty(fileno(logger.fp));
+    int in_tty = (g_logger.fp == stdout || g_logger.fp == stderr) && isatty(fileno(g_logger.fp));
 
     // Output header：[LEVEL][TIMESTAMP][FILE:LINE:FUNC]
     if (in_tty) // Use color in terminal outputs
     {
-        fprintf(logger.fp, "%s[%s]%s[%s][%s:%d:%s] ",
+        fprintf(g_logger.fp, "%s[%s]%s[%s][%s:%d:%s] ",
                 level_colors[level], level_strings[level], COLOR_RESET,
                 timestamp, ex_filename, line, funcname);
     }
     else
     {
-        fprintf(logger.fp, "[%s][%s][%s:%d:%s] ",
+        fprintf(g_logger.fp, "[%s][%s][%s:%d:%s] ",
                 level_strings[level], timestamp, ex_filename, line, funcname);
     }
 
     // Output message
     va_list args;
     va_start(args, format);
-    vfprintf(logger.fp, format, args);
+    vfprintf(g_logger.fp, format, args);
     va_end(args);
 
-    fprintf(logger.fp, "\n");
+    fprintf(g_logger.fp, "\n");
 
     // Immediate output for error
     if (level == LOG_LEVEL_ERROR)
     {
-        fflush(logger.fp);
+        fflush(g_logger.fp);
     }
 
-    pthread_mutex_unlock(&logger.lock);
+    pthread_mutex_unlock(&g_logger.lock);
 }
 
 void logger_close(void)
 {
-    pthread_mutex_lock(&logger.lock);
-    if (logger.initialized && logger.fp &&
-        logger.fp != stdout && logger.fp != stderr)
+    pthread_mutex_lock(&g_logger.lock);
+    if (g_logger.initialized && g_logger.fp &&
+        g_logger.fp != stdout && g_logger.fp != stderr)
     {
-        fflush(logger.fp);
-        fclose(logger.fp);
+        fflush(g_logger.fp);
+        fclose(g_logger.fp);
     }
-    logger.fp = NULL;
-    logger.initialized = 0;
-    pthread_mutex_unlock(&logger.lock);
+    g_logger.fp = NULL;
+    g_logger.initialized = 0;
+    pthread_mutex_unlock(&g_logger.lock);
 }
 
 void logger_set_level(log_level_t level)
 {
     if (level >= LOG_LEVEL_DEBUG && level <= LOG_LEVEL_ERROR)
     {
-        logger.level = level;
+        g_logger.level = level;
     }
 }
