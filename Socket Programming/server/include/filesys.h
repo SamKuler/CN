@@ -31,6 +31,7 @@ typedef struct
     char name[MAX_FILENAME_LEN]; // File or directory name
     fs_file_type_t type;         // Type: file, directory, or unknown
     long long size;              // File size in bytes (0 for directories)
+    time_t last_modified;        // Last modification timestamp
 } fs_file_info_t;
 
 /**

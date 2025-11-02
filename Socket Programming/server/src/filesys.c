@@ -330,6 +330,23 @@ int fs_list_directory(const char *path, fs_file_info_t *file_list, int max_files
             file_list[count].size = 0;
         }
 
+        // Get last modification time
+        FILETIME ft = find_data.ftLastWriteTime;
+        SYSTEMTIME st_utc, st_local;
+        FileTimeToSystemTime(&ft, &st_utc);
+        SystemTimeToTzSpecificLocalTime(NULL, &st_utc, &st_local);
+
+        struct tm tm_info = {
+            .tm_year = st_local.wYear - 1900,
+            .tm_mon = st_local.wMonth - 1,
+            .tm_mday = st_local.wDay,
+            .tm_hour = st_local.wHour,
+            .tm_min = st_local.wMinute,
+            .tm_sec = st_local.wSecond,
+            .tm_isdst = -1 // Let mktime determine DST
+        };
+        file_list[count].last_modified = mktime(&tm_info);
+
         count++;
     } while (FindNextFileA(hFind, &find_data));
 
@@ -370,6 +387,7 @@ int fs_list_directory(const char *path, fs_file_info_t *file_list, int max_files
             file_list[count].type = FS_TYPE_UNKNOWN;
 
         file_list[count].size = S_ISREG(st.st_mode) ? (long long)st.st_size : 0;
+        file_list[count].last_modified = st.st_mtime; // Set last modified time
 
         count++;
     }
