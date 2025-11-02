@@ -26,8 +26,15 @@
 #include <errno.h>
 #endif
 
+/**
+ * @brief Flag indicating whether the module has been initialized.
+ */
+static int g_initialized = 0;
+
 int net_init(void)
 {
+    if (g_initialized)
+        return 0;
 #ifdef _WIN32
     WSADATA wsaData;
     if (WSAStartup(MAKEWORD(2, 2), &wsaData) != 0)
@@ -35,14 +42,18 @@ int net_init(void)
         return -1;
     }
 #endif
+    g_initialized = 1;
     return 0;
 }
 
 void net_cleanup(void)
 {
+    if (!g_initialized)
+        return;
 #ifdef _WIN32
     WSACleanup();
 #endif
+    g_initialized = 0;
 }
 
 socket_t net_create_listening_socket(net_addr_family_t family, uint16_t port, int backlog)
