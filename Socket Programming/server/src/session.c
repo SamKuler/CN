@@ -83,6 +83,13 @@ session_t *session_create(socket_t control_socket,
     session->last_activity = time(NULL);
     session->should_quit = 0;
 
+    // Initialize statistics
+    session->bytes_uploaded = 0;
+    session->bytes_downloaded = 0;
+    session->files_uploaded = 0;
+    session->files_downloaded = 0;
+    session->commands_received = 0;
+
     // Initialize mutex
     pthread_mutex_init(&session->lock, NULL);
 

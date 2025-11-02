@@ -106,6 +106,9 @@ static void *client_thread(void *arg)
             continue;
         }
 
+        // Increment command counter
+        session->commands_received++;
+
         LOG_INFO("Client %s:%u: %s %s",
                  session->client_ip, session->client_port,
                  cmd.command, cmd.has_argument ? cmd.argument : "");

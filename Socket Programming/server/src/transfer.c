@@ -89,6 +89,12 @@ int transfer_send_file(session_t *session, const char *filepath, long long offse
     if (result == 0)
     {
         LOG_INFO("File transfer completed: %lld bytes sent", total_sent);
+        
+        // Update session statistics
+        pthread_mutex_lock(&session->lock);
+        session->bytes_downloaded += total_sent;
+        session->files_downloaded++;
+        pthread_mutex_unlock(&session->lock);
     }
     else
     {
@@ -156,6 +162,12 @@ int transfer_receive_file(session_t *session, const char *filepath, long long of
     if (result == 0)
     {
         LOG_INFO("File reception completed: %lld bytes received", total_received);
+        
+        // Update session statistics
+        pthread_mutex_lock(&session->lock);
+        session->bytes_uploaded += total_received;
+        session->files_uploaded++;
+        pthread_mutex_unlock(&session->lock);
     }
     else
     {
@@ -244,6 +256,12 @@ int transfer_send_file_ascii(session_t *session, const char *filepath, long long
     if (result == 0)
     {
         LOG_INFO("ASCII file transfer completed: %lld bytes sent", total_sent);
+        
+        // Update session statistics
+        pthread_mutex_lock(&session->lock);
+        session->bytes_downloaded += total_sent;
+        session->files_downloaded++;
+        pthread_mutex_unlock(&session->lock);
     }
     else
     {
@@ -338,6 +356,12 @@ int transfer_receive_file_ascii(session_t *session, const char *filepath, long l
     if (result == 0)
     {
         LOG_INFO("ASCII file reception completed: %lld bytes written", total_written);
+        
+        // Update session statistics (use total_received as it reflects actual network bytes)
+        pthread_mutex_lock(&session->lock);
+        session->bytes_uploaded += total_received;
+        session->files_uploaded++;
+        pthread_mutex_unlock(&session->lock);
     }
     else
     {

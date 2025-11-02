@@ -96,6 +96,13 @@ typedef struct
     time_t connect_time;  // Time when session was established
     time_t last_activity; // Time of last activity
     int should_quit;      // 1 if session should terminate
+
+    // Statistics (for tracking data transfer)
+    unsigned long long bytes_uploaded;   // Total bytes uploaded (STOR etc.)
+    unsigned long long bytes_downloaded; // Total bytes downloaded (RETR etc.)
+    unsigned int files_uploaded;         // Number of files uploaded
+    unsigned int files_downloaded;       // Number of files downloaded
+    unsigned int commands_received;      // Total number of commands received
 } session_t;
 
 /**
