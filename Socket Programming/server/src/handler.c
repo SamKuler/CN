@@ -17,7 +17,55 @@
 #include <stdlib.h>
 #include <string.h>
 
+// Previous Handlers for context changing
+
+int cmd_prev_handle_clear_restart(cmd_handler_context_t context, const proto_command_t *cmd)
+{
+    (void)cmd;
+
+    session_t *session = (session_t *)context;
+    if (!session)
+    {
+        return -1;
+    }
+
+    session_clear_restart_offset(session);
+    return 0;
+}
+
+int cmd_prev_handle_clear_rename(cmd_handler_context_t context, const proto_command_t *cmd)
+{
+    (void)cmd;
+
+    session_t *session = (session_t *)context;
+    if (!session)
+    {
+        return -1;
+    }
+
+    session_clear_rename_state(session);
+    return 0;
+}
+
+// Clear both restart offset and rename state
+int cmd_prev_handle_clear_all(cmd_handler_context_t context, const proto_command_t *cmd)
+{
+    (void)cmd;
+
+    session_t *session = (session_t *)context;
+    if (!session)
+    {
+        return -1;
+    }
+
+    session_clear_restart_offset(session);
+    session_clear_rename_state(session);
+    return 0;
+}
+
 // Access Control Commands
+
+// Login Commands
 
 int cmd_handle_user(cmd_handler_context_t context, const proto_command_t *cmd)
 {
@@ -104,7 +152,7 @@ int cmd_handle_pass(cmd_handler_context_t context, const proto_command_t *cmd)
 
 int cmd_handle_acct(cmd_handler_context_t context, const proto_command_t *cmd)
 {
-    (void)cmd;  // Unused parameter
+    (void)cmd; // Unused parameter
     session_t *session = (session_t *)context;
     return session_send_response(session, PROTO_RESP_COMMAND_NOT_IMPL,
                                  "ACCT not implemented");
@@ -164,11 +212,13 @@ int cmd_handle_cdup(cmd_handler_context_t context, const proto_command_t *cmd)
 
 int cmd_handle_smnt(cmd_handler_context_t context, const proto_command_t *cmd)
 {
-    (void)cmd;  // Unused parameter
+    (void)cmd; // Unused parameter
     session_t *session = (session_t *)context;
     return session_send_response(session, PROTO_RESP_COMMAND_NOT_IMPL,
                                  "SMNT not implemented");
 }
+
+// Logout Commands
 
 int cmd_handle_quit(cmd_handler_context_t context, const proto_command_t *cmd)
 {
@@ -852,6 +902,45 @@ int cmd_handle_stor(cmd_handler_context_t context, const proto_command_t *cmd)
     }
 
     return response;
+}
+
+int cmd_handle_rest(cmd_handler_context_t context, const proto_command_t *cmd)
+{
+    session_t *session = (session_t *)context;
+
+    if (!session->authenticated)
+    {
+        return session_send_response(session, PROTO_RESP_NOT_LOGGED_IN,
+                                     "Please login with USER and PASS");
+    }
+
+    if (!cmd->has_argument)
+    {
+        return session_send_response(session, PROTO_RESP_SYNTAX_ERROR_PARAM,
+                                     "Syntax error in parameters");
+    }
+
+    // Parse the restart offset
+    char *endptr;
+    long long offset = strtoll(cmd->argument, &endptr, 10);
+
+    if (*endptr != '\0' || offset < 0)
+    {
+        return session_send_response(session, PROTO_RESP_SYNTAX_ERROR_PARAM,
+                                     "Invalid restart offset");
+    }
+
+    // Set the restart offset
+    if (session_set_restart_offset(session, offset) != 0)
+    {
+        return session_send_response(session, PROTO_RESP_LOCAL_ERROR,
+                                     "Failed to set restart offset");
+    }
+
+    char response[PROTO_MAX_RESPONSE_LINE];
+    snprintf(response, sizeof(response), "Restart position accepted (%lld)", offset);
+
+    return session_send_response(session, PROTO_RESP_FILE_ACTION_PENDING, response);
 }
 
 int cmd_handle_list(cmd_handler_context_t context, const proto_command_t *cmd)
