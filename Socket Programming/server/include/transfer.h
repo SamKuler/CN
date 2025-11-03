@@ -16,16 +16,27 @@
 #define TRANSFER_BUFFER_SIZE 65536 // 64KB
 
 /**
- * @brief Sends a file to the client through the data connection
+ * @brief Result codes for data transfer operations.
+ */
+typedef enum
+{
+	TRANSFER_STATUS_OK = 0,
+	TRANSFER_STATUS_IO_ERROR = -1,
+	TRANSFER_STATUS_CONN_ERROR = -2,
+	TRANSFER_STATUS_INTERNAL_ERROR = -3
+} transfer_status_t;
+
+/**
+ * @brief Sends a file to the client through the data connection.
  *
  * Binary mode transmission.
  *
  * @param session The FTP session
  * @param filepath Absolute filesystem path to the file
  * @param offset Starting byte offset (for REST command support)
- * @return 0 on success, -1 on error
+ * @return transfer_status_t value indicating success or the failure reason
  */
-int transfer_send_file(session_t *session, const char *filepath, long long offset);
+transfer_status_t transfer_send_file(session_t *session, const char *filepath, long long offset);
 
 /**
  * @brief Receives a file from the client through the data connection
@@ -33,9 +44,9 @@ int transfer_send_file(session_t *session, const char *filepath, long long offse
  * @param session The FTP session
  * @param filepath Absolute filesystem path to save the file
  * @param offset Starting byte offset (for APPE/REST command support)
- * @return 0 on success, -1 on error
+ * @return transfer_status_t value indicating success or the failure reason
  */
-int transfer_receive_file(session_t *session, const char *filepath, long long offset);
+transfer_status_t transfer_receive_file(session_t *session, const char *filepath, long long offset);
 
 /**
  * @brief Sends a file to the client through the data connection
@@ -45,9 +56,9 @@ int transfer_receive_file(session_t *session, const char *filepath, long long of
  * @param session The FTP session
  * @param filepath Absolute filesystem path to the file
  * @param offset Starting byte offset
- * @return 0 on success, -1 on error
+ * @return transfer_status_t value indicating success or the failure reason
  */
-int transfer_send_file_ascii(session_t *session, const char *filepath, long long offset);
+transfer_status_t transfer_send_file_ascii(session_t *session, const char *filepath, long long offset);
 
 /**
  * @brief Receives a file from the client through the data connection
@@ -57,9 +68,9 @@ int transfer_send_file_ascii(session_t *session, const char *filepath, long long
  * @param session The FTP session
  * @param filepath Absolute filesystem path to save the file
  * @param offset Starting byte offset
- * @return 0 on success, -1 on error
+ * @return transfer_status_t value indicating success or the failure reason
  */
-int transfer_receive_file_ascii(session_t *session, const char *filepath, long long offset);
+transfer_status_t transfer_receive_file_ascii(session_t *session, const char *filepath, long long offset);
 
 /**
  * @brief Sends directory listing to the client (LIST command)
@@ -68,17 +79,17 @@ int transfer_receive_file_ascii(session_t *session, const char *filepath, long l
  *
  * @param session The FTP session
  * @param dirpath Absolute filesystem path to the directory
- * @return 0 on success, -1 on error
+ * @return transfer_status_t indicating success or failure reason
  */
-int transfer_send_list(session_t *session, const char *dirpath);
+transfer_status_t transfer_send_list(session_t *session, const char *dirpath);
 
 /**
  * @brief Sends name list to the client (NLST command)
  *
  * @param session The FTP session
  * @param dirpath Absolute filesystem path to the directory
- * @return 0 on success, -1 on error
+ * @return transfer_status_t indicating success or failure reason
  */
-int transfer_send_nlst(session_t *session, const char *dirpath);
+transfer_status_t transfer_send_nlst(session_t *session, const char *dirpath);
 
 #endif // TRANSFER_H

@@ -22,38 +22,38 @@
 #include <grp.h>
 #endif
 
-int transfer_send_file(session_t *session, const char *filepath, long long offset)
+transfer_status_t transfer_send_file(session_t *session, const char *filepath, long long offset)
 {
     if (!session || !filepath)
     {
         LOG_ERROR("Invalid parameters for transfer_send_file");
-        return -1;
+        return TRANSFER_STATUS_INTERNAL_ERROR;
     }
 
     long long file_size = fs_get_file_size(filepath);
     if (file_size < 0)
     {
         LOG_ERROR("Cannot get file size: %s", filepath);
-        return -1;
+        return TRANSFER_STATUS_IO_ERROR;
     }
 
     if (offset > file_size)
     {
         LOG_ERROR("Offset %lld exceeds file size %lld", offset, file_size);
-        return -1;
+        return TRANSFER_STATUS_IO_ERROR;
     }
 
     char *buffer = malloc(TRANSFER_BUFFER_SIZE);
     if (!buffer)
     {
         LOG_ERROR("Failed to allocate transfer buffer");
-        return -1;
+        return TRANSFER_STATUS_INTERNAL_ERROR;
     }
 
     long long remaining = file_size - offset;
     long long current_offset = offset;
     long long total_sent = 0;
-    int result = 0;
+    transfer_status_t status = TRANSFER_STATUS_OK;
 
     LOG_INFO("Starting file transfer: %s (size: %lld, offset: %lld)",
              filepath, file_size, offset);
@@ -65,17 +65,24 @@ int transfer_send_file(session_t *session, const char *filepath, long long offse
         long long bytes_read = fs_read_file_chunk(filepath, buffer,
                                                   current_offset, to_read);
 
-        if (bytes_read <= 0)
+        if (bytes_read < 0)
         {
             LOG_ERROR("Failed to read file chunk at offset %lld", current_offset);
-            result = -1;
+            status = TRANSFER_STATUS_IO_ERROR;
+            break;
+        }
+
+        if (bytes_read == 0)
+        {
+            LOG_ERROR("Unexpected EOF while reading %s", filepath);
+            status = TRANSFER_STATUS_IO_ERROR;
             break;
         }
 
         if (net_send_all(session->data_socket, buffer, (size_t)bytes_read) != 0)
         {
             LOG_ERROR("Failed to send data to client");
-            result = -1;
+            status = TRANSFER_STATUS_CONN_ERROR;
             break;
         }
 
@@ -86,10 +93,10 @@ int transfer_send_file(session_t *session, const char *filepath, long long offse
 
     free(buffer);
 
-    if (result == 0)
+    if (status == TRANSFER_STATUS_OK)
     {
         LOG_INFO("File transfer completed: %lld bytes sent", total_sent);
-        
+
         // Update session statistics
         pthread_mutex_lock(&session->lock);
         session->bytes_downloaded += total_sent;
@@ -101,26 +108,26 @@ int transfer_send_file(session_t *session, const char *filepath, long long offse
         LOG_ERROR("File transfer failed after %lld bytes", total_sent);
     }
 
-    return result;
+    return status;
 }
 
-int transfer_receive_file(session_t *session, const char *filepath, long long offset)
+transfer_status_t transfer_receive_file(session_t *session, const char *filepath, long long offset)
 {
     if (!session || !filepath)
     {
         LOG_ERROR("Invalid parameters for transfer_receive_file");
-        return -1;
+        return TRANSFER_STATUS_INTERNAL_ERROR;
     }
 
     char *buffer = malloc(TRANSFER_BUFFER_SIZE);
     if (!buffer)
     {
         LOG_ERROR("Failed to allocate transfer buffer");
-        return -1;
+        return TRANSFER_STATUS_INTERNAL_ERROR;
     }
 
     long long total_received = 0;
-    int result = 0;
+    transfer_status_t status = TRANSFER_STATUS_OK;
 
     LOG_INFO("Starting file reception: %s (offset: %lld)", filepath, offset);
 
@@ -132,7 +139,7 @@ int transfer_receive_file(session_t *session, const char *filepath, long long of
         if (bytes_received < 0)
         {
             LOG_ERROR("Failed to receive data from client");
-            result = -1;
+            status = TRANSFER_STATUS_CONN_ERROR;
             break;
         }
 
@@ -150,7 +157,7 @@ int transfer_receive_file(session_t *session, const char *filepath, long long of
         {
             LOG_ERROR("Failed to write to file at offset %lld",
                       offset + total_received);
-            result = -1;
+            status = TRANSFER_STATUS_IO_ERROR;
             break;
         }
 
@@ -159,10 +166,10 @@ int transfer_receive_file(session_t *session, const char *filepath, long long of
 
     free(buffer);
 
-    if (result == 0)
+    if (status == TRANSFER_STATUS_OK)
     {
         LOG_INFO("File reception completed: %lld bytes received", total_received);
-        
+
         // Update session statistics
         pthread_mutex_lock(&session->lock);
         session->bytes_uploaded += total_received;
@@ -174,28 +181,28 @@ int transfer_receive_file(session_t *session, const char *filepath, long long of
         LOG_ERROR("File reception failed after %lld bytes", total_received);
     }
 
-    return result;
+    return status;
 }
 
-int transfer_send_file_ascii(session_t *session, const char *filepath, long long offset)
+transfer_status_t transfer_send_file_ascii(session_t *session, const char *filepath, long long offset)
 {
     if (!session || !filepath)
     {
         LOG_ERROR("Invalid parameters for transfer_send_file_ascii");
-        return -1;
+        return TRANSFER_STATUS_INTERNAL_ERROR;
     }
 
     long long file_size = fs_get_file_size(filepath);
     if (file_size < 0)
     {
         LOG_ERROR("Cannot get file size: %s", filepath);
-        return -1;
+        return TRANSFER_STATUS_IO_ERROR;
     }
 
     if (offset > file_size)
     {
         LOG_ERROR("Offset %lld exceeds file size %lld", offset, file_size);
-        return -1;
+        return TRANSFER_STATUS_IO_ERROR;
     }
 
     char *read_buffer = malloc(TRANSFER_BUFFER_SIZE);
@@ -205,13 +212,13 @@ int transfer_send_file_ascii(session_t *session, const char *filepath, long long
         LOG_ERROR("Failed to allocate transfer buffers");
         free(read_buffer);
         free(write_buffer);
-        return -1;
+        return TRANSFER_STATUS_INTERNAL_ERROR;
     }
 
     long long remaining = file_size - offset;
     long long current_offset = offset;
     long long total_sent = 0;
-    int result = 0;
+    transfer_status_t status = TRANSFER_STATUS_OK;
 
     LOG_INFO("Starting ASCII file transfer: %s (size: %lld, offset: %lld)",
              filepath, file_size, offset);
@@ -223,10 +230,17 @@ int transfer_send_file_ascii(session_t *session, const char *filepath, long long
         long long bytes_read = fs_read_file_chunk(filepath, read_buffer,
                                                   current_offset, to_read);
 
-        if (bytes_read <= 0)
+        if (bytes_read < 0)
         {
             LOG_ERROR("Failed to read file chunk at offset %lld", current_offset);
-            result = -1;
+            status = TRANSFER_STATUS_IO_ERROR;
+            break;
+        }
+
+        if (bytes_read == 0)
+        {
+            LOG_ERROR("Unexpected EOF while reading %s in ASCII mode", filepath);
+            status = TRANSFER_STATUS_IO_ERROR;
             break;
         }
 
@@ -234,14 +248,14 @@ int transfer_send_file_ascii(session_t *session, const char *filepath, long long
         if (converted_bytes < 0)
         {
             LOG_ERROR("Failed to convert LF to CRLF for sending");
-            result = -1;
+            status = TRANSFER_STATUS_INTERNAL_ERROR;
             break;
         }
 
         if (net_send_all(session->data_socket, write_buffer, (size_t)converted_bytes) != 0)
         {
             LOG_ERROR("Failed to send data to client in ASCII mode");
-            result = -1;
+            status = TRANSFER_STATUS_CONN_ERROR;
             break;
         }
 
@@ -253,10 +267,10 @@ int transfer_send_file_ascii(session_t *session, const char *filepath, long long
     free(read_buffer);
     free(write_buffer);
 
-    if (result == 0)
+    if (status == TRANSFER_STATUS_OK)
     {
         LOG_INFO("ASCII file transfer completed: %lld bytes sent", total_sent);
-        
+
         // Update session statistics
         pthread_mutex_lock(&session->lock);
         session->bytes_downloaded += total_sent;
@@ -268,15 +282,15 @@ int transfer_send_file_ascii(session_t *session, const char *filepath, long long
         LOG_ERROR("ASCII file transfer failed after %lld bytes", total_sent);
     }
 
-    return result;
+    return status;
 }
 
-int transfer_receive_file_ascii(session_t *session, const char *filepath, long long offset)
+transfer_status_t transfer_receive_file_ascii(session_t *session, const char *filepath, long long offset)
 {
     if (!session || !filepath)
     {
         LOG_ERROR("Invalid parameters for transfer_receive_file_ascii");
-        return -1;
+        return TRANSFER_STATUS_INTERNAL_ERROR;
     }
 
     char *read_buffer = malloc(TRANSFER_BUFFER_SIZE);
@@ -286,12 +300,12 @@ int transfer_receive_file_ascii(session_t *session, const char *filepath, long l
         LOG_ERROR("Failed to allocate transfer buffers");
         free(read_buffer);
         free(write_buffer);
-        return -1;
+        return TRANSFER_STATUS_INTERNAL_ERROR;
     }
 
     long long total_received = 0;
     long long total_written = 0;
-    int result = 0;
+    transfer_status_t status = TRANSFER_STATUS_OK;
 
     LOG_INFO("Starting ASCII file reception: %s (offset: %lld)", filepath, offset);
 
@@ -303,7 +317,7 @@ int transfer_receive_file_ascii(session_t *session, const char *filepath, long l
         if (bytes_received < 0)
         {
             LOG_ERROR("Failed to receive data from client in ASCII mode");
-            result = -1;
+            status = TRANSFER_STATUS_CONN_ERROR;
             break;
         }
 
@@ -328,7 +342,7 @@ int transfer_receive_file_ascii(session_t *session, const char *filepath, long l
         if (converted_bytes < 0)
         {
             LOG_ERROR("Failed to convert CRLF to LF for receiving");
-            result = -1;
+            status = TRANSFER_STATUS_INTERNAL_ERROR;
             break;
         }
         bytes_to_write = converted_bytes;
@@ -343,7 +357,7 @@ int transfer_receive_file_ascii(session_t *session, const char *filepath, long l
         {
             LOG_ERROR("Failed to write to file at offset %lld in ASCII mode",
                       offset + total_written);
-            result = -1;
+            status = TRANSFER_STATUS_IO_ERROR;
             break;
         }
 
@@ -353,10 +367,10 @@ int transfer_receive_file_ascii(session_t *session, const char *filepath, long l
     free(read_buffer);
     free(write_buffer);
 
-    if (result == 0)
+    if (status == TRANSFER_STATUS_OK)
     {
         LOG_INFO("ASCII file reception completed: %lld bytes written", total_written);
-        
+
         // Update session statistics (use total_received as it reflects actual network bytes)
         pthread_mutex_lock(&session->lock);
         session->bytes_uploaded += total_received;
@@ -368,15 +382,15 @@ int transfer_receive_file_ascii(session_t *session, const char *filepath, long l
         LOG_ERROR("ASCII file reception failed after %lld bytes", total_written);
     }
 
-    return result;
+    return status;
 }
 
-int transfer_send_list(session_t *session, const char *dirpath)
+transfer_status_t transfer_send_list(session_t *session, const char *dirpath)
 {
     if (!session || !dirpath)
     {
         LOG_ERROR("Invalid parameters for transfer_send_list");
-        return -1;
+        return TRANSFER_STATUS_INTERNAL_ERROR;
     }
 
     fs_file_info_t file_list[1024];
@@ -385,7 +399,7 @@ int transfer_send_list(session_t *session, const char *dirpath)
     if (count < 0)
     {
         LOG_ERROR("Failed to list directory: %s", dirpath);
-        return -1;
+        return TRANSFER_STATUS_IO_ERROR;
     }
 
     char line_buffer[1024];
@@ -445,6 +459,11 @@ int transfer_send_list(session_t *session, const char *dirpath)
 
         // Format last modification time
         struct tm *tm_info = localtime(&file_list[i].last_modified);
+        if (!tm_info)
+        {
+            LOG_ERROR("Failed to convert modification time for %s", file_list[i].name);
+            return TRANSFER_STATUS_INTERNAL_ERROR;
+        }
         strftime(date_str, sizeof(date_str), "%b %d %H:%M", tm_info);
 
         // Unix ls -l style
@@ -470,20 +489,20 @@ int transfer_send_list(session_t *session, const char *dirpath)
         if (net_send_all(session->data_socket, line_buffer, strlen(line_buffer)) != 0)
         {
             LOG_ERROR("Failed to send listing line");
-            return -1;
+            return TRANSFER_STATUS_CONN_ERROR;
         }
     }
 
     LOG_INFO("Sent directory listing: %d entries", count);
-    return 0;
+    return TRANSFER_STATUS_OK;
 }
 
-int transfer_send_nlst(session_t *session, const char *dirpath)
+transfer_status_t transfer_send_nlst(session_t *session, const char *dirpath)
 {
     if (!session || !dirpath)
     {
         LOG_ERROR("Invalid parameters for transfer_send_nlst");
-        return -1;
+        return TRANSFER_STATUS_INTERNAL_ERROR;
     }
 
     fs_file_info_t file_list[1024];
@@ -492,7 +511,7 @@ int transfer_send_nlst(session_t *session, const char *dirpath)
     if (count < 0)
     {
         LOG_ERROR("Failed to list directory: %s", dirpath);
-        return -1;
+        return TRANSFER_STATUS_IO_ERROR;
     }
 
     char line_buffer[512];
@@ -505,10 +524,10 @@ int transfer_send_nlst(session_t *session, const char *dirpath)
         if (net_send_all(session->data_socket, line_buffer, strlen(line_buffer)) != 0)
         {
             LOG_ERROR("Failed to send name list line");
-            return -1;
+            return TRANSFER_STATUS_CONN_ERROR;
         }
     }
 
     LOG_INFO("Sent name list: %d entries", count);
-    return 0;
+    return TRANSFER_STATUS_OK;
 }
