@@ -108,6 +108,33 @@ int main()
     if (fs_path_exists(dir))
         fail_and_exit("directory still exists after recursive delete");
 
+
+    /* filename extract test */
+    const char *test_paths[] = {
+        "/path/to/file.txt",
+        // "C:\\path\\to\\file.txt",
+        "/path/to/directory/",
+        "file_only.txt",
+        "/",
+        "",
+        NULL
+    };
+    const char *expected_filenames[] = {
+        "file.txt",
+        // "file.txt",
+        "",
+        "file_only.txt",
+        "",
+        "",
+    };
+    for (int i = 0; test_paths[i] != NULL; ++i)
+    {
+        const char *extracted = fs_extract_filename(test_paths[i]);
+        if (strcmp(extracted, expected_filenames[i]) != 0)
+        {
+            fail_and_exit("fs_extract_filename mismatch");
+        }
+    }
     printf("All filesys tests passed\n");
     return 0;
 }
