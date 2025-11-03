@@ -32,6 +32,7 @@ set(SOURCES
     src/utils.c
     src/logger.c
     src/filesys.c
+    src/filelock.c
     src/network.c
     src/protocol.c
     src/command.c
