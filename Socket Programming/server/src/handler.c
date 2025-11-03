@@ -1150,6 +1150,76 @@ int cmd_handle_list(cmd_handler_context_t context, const proto_command_t *cmd)
                                  "Directory listing completed");
 }
 
+int cmd_handle_nlst(cmd_handler_context_t context, const proto_command_t *cmd)
+{
+    session_t *session = (session_t *)context;
+
+    if (!session->authenticated)
+    {
+        return session_send_response(session, PROTO_RESP_NOT_LOGGED_IN,
+                                     "Please login with USER and PASS");
+    }
+
+    // Get path argument, default to current directory
+    const char *path = cmd->has_argument ? cmd->argument : ".";
+
+    // Check path access permission (READ required for listing)
+    if (!session_check_path_access(session, path, AUTH_PERM_READ))
+    {
+        LOG_WARN("User '%s' denied read access to: %s", session->username, path);
+        return session_send_response(session, PROTO_RESP_FILE_UNAVAILABLE,
+                                     "Permission denied");
+    }
+
+    char abs_path[SESSION_MAX_PATH];
+    if (session_resolve_path(session, path, abs_path, sizeof(abs_path)) != 0)
+    {
+        return session_send_response(session, PROTO_RESP_FILE_UNAVAILABLE,
+                                     "Invalid path");
+    }
+
+    // Check if path exists and is a directory
+    if (!fs_path_exists(abs_path))
+    {
+        return session_send_response(session, PROTO_RESP_FILE_UNAVAILABLE,
+                                     "Path not found");
+    }
+
+    if (!fs_is_directory(abs_path))
+    {
+        return session_send_response(session, PROTO_RESP_FILE_UNAVAILABLE,
+                                     "Path is not a directory");
+    }
+
+    // Open data connection
+    if (session_open_data_connection(session, 10000) != 0)
+    {
+        return session_send_response(session, PROTO_RESP_CANT_OPEN_DATA,
+                                     "Can't open data connection");
+    }
+
+    // Inform client that transfer is starting
+    if (session_send_response(session, PROTO_RESP_FILE_STATUS_OK,
+                              "Opening data connection for name list") != 0)
+    {
+        session_close_data_connection(session);
+        return -1;
+    }
+
+    // List directory contents (name only)
+    if (transfer_send_nlst(session, abs_path) != TRANSFER_STATUS_OK)
+    {
+        session_close_data_connection(session);
+        return session_send_response(session, PROTO_RESP_LOCAL_ERROR,
+                                     "Failed to list directory");
+    }
+
+    session_close_data_connection(session);
+
+    return session_send_response(session, PROTO_RESP_CLOSING_DATA,
+                                 "Name list completed");
+}
+
 int cmd_handle_pwd(cmd_handler_context_t context, const proto_command_t *cmd)
 {
     session_t *session = (session_t *)context;
