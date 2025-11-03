@@ -105,6 +105,14 @@ long long fs_get_directory_size(const char *path);
 int fs_list_directory(const char *path, fs_file_info_t *file_list, int max_files);
 
 /**
+ * @brief Extract filename from path
+ *
+ * @param path Absolute path
+ * @return filename
+ */
+const char *fs_extract_filename(const char *path);
+
+/**
  * @brief Read the entire contents of a file into the provided buffer.
  * @param path File path
  * @param buffer Content buffer

@@ -8,16 +8,6 @@ void get_timestamp(char *buffer, size_t size)
     strftime(buffer, size, "%Y-%m-%d %H:%M:%S", tm_info);
 }
 
-const char *extract_filename(const char *path)
-{
-    const char *filename = strrchr(path, '/');
-    if (!filename)
-    {
-        filename = strrchr(path, '\\'); // Windows PATH
-    }
-    return filename ? filename + 1 : path;
-}
-
 void trim_whitespace(char *str)
 {
     if (!str || !*str)

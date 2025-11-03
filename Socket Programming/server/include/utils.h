@@ -13,14 +13,6 @@
 void get_timestamp(char *buffer, size_t size);
 
 /**
- * @brief Extract filename from path
- *
- * @param path Absolute path
- * @return filename
- */
-const char *extract_filename(const char *path);
-
-/**
  * @brief Trims leading and trailing whitespace from a string.
  *
  * @param str The string to trim (modified in place).

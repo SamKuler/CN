@@ -7,7 +7,7 @@
  *
  */
 #include "logger.h"
-#include "utils.h"
+#include "filesys.h"
 #include <stdio.h>
 #include <stdlib.h>
 #include <stdarg.h>
@@ -97,7 +97,7 @@ void logger_log(log_level_t level, const char *filename,
     get_timestamp(timestamp, sizeof(timestamp));
 
     // Get filename
-    const char *ex_filename = extract_filename(filename);
+    const char *ex_filename = fs_extract_filename(filename);
 
     pthread_mutex_lock(&g_logger.lock);
 

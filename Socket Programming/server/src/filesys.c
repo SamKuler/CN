@@ -8,7 +8,10 @@
  */
 #include "filesys.h"
 
+#include <limits.h>
 #include <errno.h>
+#include <stdio.h>
+#include <string.h>
 
 #ifdef _WIN32
 #include <direct.h>
@@ -16,14 +19,11 @@
 #include <io.h>
 #include <stdarg.h>
 #else
-#include <limits.h>
 #include <fcntl.h>
 #include <dirent.h>
 #include <unistd.h>
 #include <sys/stat.h>
 #include <sys/types.h>
-#include <stdio.h>
-#include <string.h>
 #include <pwd.h>
 #include <grp.h>
 #endif
@@ -490,6 +490,32 @@ int fs_list_directory(const char *path, fs_file_info_t *file_list, int max_files
     closedir(d);
     return count;
 #endif
+}
+
+const char *fs_extract_filename(const char *path)
+{
+    if (path == NULL)
+        return NULL;
+#ifdef _WIN32
+    const char *filename = strrchr(path, '\\');
+#else
+    const char *filename = strrchr(path, '/');
+#endif
+
+    if (filename)
+        return filename + 1;
+    else
+    {
+        // Check relative path or root
+#ifdef _WIN32
+        if (strlen(path) == 2 && path[1] == ':')
+            return ""; // e.g., "C:"
+        else
+            return path;
+#else
+        return path;
+#endif
+    }
 }
 
 long long fs_read_file_all(const char *path, void *buffer, long long buffer_size)
