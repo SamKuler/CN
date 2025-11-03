@@ -9,6 +9,7 @@
 #include "protocol.h"
 #include "transfer.h"
 #include "filesys.h"
+#include "filelock.h"
 #include "logger.h"
 #include "utils.h"
 
@@ -529,3 +530,327 @@ int cmd_handle_mode(cmd_handler_context_t context, const proto_command_t *cmd)
     return session_send_response(session, PROTO_RESP_OK,
                                  "Mode set to Stream");
 }
+
+// FTP Service Commands
+
+int cmd_handle_retr(cmd_handler_context_t context, const proto_command_t *cmd)
+{
+    session_t *session = (session_t *)context;
+
+    if (!session->authenticated)
+    {
+        return session_send_response(session, PROTO_RESP_NOT_LOGGED_IN,
+                                     "Please login with USER and PASS");
+    }
+
+    if (!cmd->has_argument)
+    {
+        return session_send_response(session, PROTO_RESP_SYNTAX_ERROR_PARAM,
+                                     "Syntax error in parameters");
+    }
+
+    // Check path access permission (READ required for downloading)
+    if (!session_check_path_access(session, cmd->argument, AUTH_PERM_READ))
+    {
+        LOG_WARN("User '%s' denied read access to: %s", session->username, cmd->argument);
+        return session_send_response(session, PROTO_RESP_FILE_UNAVAILABLE,
+                                     "Permission denied");
+    }
+
+    char abs_path[SESSION_MAX_PATH];
+    if (session_resolve_path(session, cmd->argument, abs_path, sizeof(abs_path)) != 0)
+    {
+        return session_send_response(session, PROTO_RESP_FILE_UNAVAILABLE,
+                                     "Invalid path");
+    }
+
+    // Check if file exists and is a regular file (not a directory)
+    if (!fs_path_exists(abs_path))
+    {
+        return session_send_response(session, PROTO_RESP_FILE_UNAVAILABLE,
+                                     "File not found");
+    }
+
+    // Get restart offset (for REST + RETR)
+    long long offset = session_pop_restart_offset(session);
+
+    // Error handling variables
+    int response = -1;
+    int lock_acquired = 0;
+    int data_connection_opened = 0;
+    transfer_status_t result = TRANSFER_STATUS_INTERNAL_ERROR;
+
+    // Use do-while(0) for structured error handling
+    do
+    {
+        if (session_open_data_connection(session, 10000) != 0)
+        {
+            response = session_send_response(session, PROTO_RESP_CANT_OPEN_DATA,
+                                             "Can't open data connection");
+            break;
+        }
+        data_connection_opened = 1;
+
+        if (file_lock_acquire_shared(abs_path) != 0)
+        {
+            response = session_send_response(session, PROTO_RESP_FILE_ACTION_ABORTED,
+                                             "File is busy, try again later");
+            break;
+        }
+        lock_acquired = 1;
+
+        // Revalidate file state while holding the lock
+        if (!fs_path_exists(abs_path))
+        {
+            response = session_send_response(session, PROTO_RESP_FILE_UNAVAILABLE,
+                                             "File not found");
+            break;
+        }
+
+        if (fs_is_directory(abs_path))
+        {
+            response = session_send_response(session, PROTO_RESP_FILE_UNAVAILABLE,
+                                             "Cannot download a directory");
+            break;
+        }
+
+        long long file_size = fs_get_file_size(abs_path);
+        if (file_size < 0)
+        {
+            response = session_send_response(session, PROTO_RESP_FILE_UNAVAILABLE,
+                                             "Cannot read file");
+            break;
+        }
+
+        if (offset > file_size)
+        {
+            response = session_send_response(session, PROTO_RESP_FILE_UNAVAILABLE,
+                                             "Invalid restart offset");
+            break;
+        }
+
+        // Inform client that transfer is starting (150 reply)
+        char msg[PROTO_MAX_RESPONSE_LINE];
+        snprintf(msg, sizeof(msg), "Opening %s mode data connection for %s (%lld bytes)",
+                 (session->transfer_type == PROTO_TYPE_ASCII) ? "ASCII" : "BINARY",
+                 cmd->argument, file_size - offset);
+        if (session_send_response(session, PROTO_RESP_FILE_STATUS_OK, msg) != 0)
+        {
+            response = -1;
+            break;
+        }
+
+        if (session->transfer_type == PROTO_TYPE_ASCII)
+        {
+            result = transfer_send_file_ascii(session, abs_path, offset);
+        }
+        else
+        {
+            result = transfer_send_file(session, abs_path, offset);
+        }
+
+        session_close_data_connection(session);
+        data_connection_opened = 0;
+
+        if (result == TRANSFER_STATUS_OK)
+        {
+            response = session_send_response(session, PROTO_RESP_CLOSING_DATA,
+                                             "Transfer complete");
+            break;
+        }
+
+        if (result == TRANSFER_STATUS_CONN_ERROR)
+        {
+            response = session_send_response(session, PROTO_RESP_CONN_CLOSED,
+                                             "Data connection closed; transfer aborted");
+            break;
+        }
+
+        if (result == TRANSFER_STATUS_IO_ERROR)
+        {
+            response = session_send_response(session, PROTO_RESP_LOCAL_ERROR,
+                                             "Failed to read file from disk");
+            break;
+        }
+
+        response = session_send_response(session, PROTO_RESP_LOCAL_ERROR,
+                                         "Internal error during transfer");
+    } while (0);
+
+    if (data_connection_opened)
+    {
+        session_close_data_connection(session);
+    }
+
+    if (lock_acquired)
+    {
+        file_lock_release_shared(abs_path);
+    }
+
+    return response;
+}
+
+int cmd_handle_stor(cmd_handler_context_t context, const proto_command_t *cmd)
+{
+    session_t *session = (session_t *)context;
+
+    if (!session->authenticated)
+    {
+        return session_send_response(session, PROTO_RESP_NOT_LOGGED_IN,
+                                     "Please login with USER and PASS");
+    }
+
+    if (!cmd->has_argument)
+    {
+        return session_send_response(session, PROTO_RESP_SYNTAX_ERROR_PARAM,
+                                     "Syntax error in parameters");
+    }
+
+    // Check path access permission (WRITE required for uploading)
+    if (!session_check_path_access(session, cmd->argument, AUTH_PERM_WRITE))
+    {
+        LOG_WARN("User '%s' denied write access to: %s", session->username, cmd->argument);
+        return session_send_response(session, PROTO_RESP_FILE_UNAVAILABLE,
+                                     "Permission denied");
+    }
+
+    char abs_path[SESSION_MAX_PATH];
+    if (session_resolve_path(session, cmd->argument, abs_path, sizeof(abs_path)) != 0)
+    {
+        return session_send_response(session, PROTO_RESP_FILE_UNAVAILABLE,
+                                     "Invalid path");
+    }
+
+    // Check if path exists and is a directory (cannot overwrite directory)
+    if (fs_is_directory(abs_path))
+    {
+        return session_send_response(session, PROTO_RESP_FILE_UNAVAILABLE,
+                                     "Cannot upload to a directory");
+    }
+
+    // Get restart offset (for REST + STOR)
+    long long offset = session_pop_restart_offset(session);
+
+    int response = -1;
+    int lock_acquired = 0;
+    int data_connection_open = 0;
+    transfer_status_t result = TRANSFER_STATUS_INTERNAL_ERROR;
+
+    // Use do-while(0) for structured error handling
+    do
+    {
+        if (session_open_data_connection(session, 10000) != 0)
+        {
+            response = session_send_response(session, PROTO_RESP_CANT_OPEN_DATA,
+                                             "Can't open data connection");
+            break;
+        }
+
+        data_connection_open = 1;
+
+        if (file_lock_acquire_exclusive(abs_path) != 0)
+        {
+            response = session_send_response(session, PROTO_RESP_FILE_ACTION_ABORTED,
+                                             "File is busy, try again later");
+            break;
+        }
+        lock_acquired = 1;
+
+        // Revalidate file state while holding the lock
+        if (offset > 0)
+        {
+            if (!fs_path_exists(abs_path))
+            {
+                response = session_send_response(session, PROTO_RESP_FILE_UNAVAILABLE,
+                                                 "File does not exist for resume");
+                break;
+            }
+
+            long long file_size = fs_get_file_size(abs_path);
+            if (file_size < 0)
+            {
+                response = session_send_response(session, PROTO_RESP_FILE_UNAVAILABLE,
+                                                 "Cannot read file");
+                break;
+            }
+
+            if (offset > file_size)
+            {
+                response = session_send_response(session, PROTO_RESP_FILE_UNAVAILABLE,
+                                                 "Invalid restart offset");
+                break;
+            }
+        }
+        else
+        {
+            // Fresh upload should replace existing file to avoid stale data
+            if (fs_path_exists(abs_path) && fs_delete_file(abs_path) != 0)
+            {
+                LOG_WARN("User '%s' cannot overwrite file: %s", session->username, abs_path);
+                response = session_send_response(session, PROTO_RESP_FILE_UNAVAILABLE,
+                                                 "Cannot overwrite existing file");
+                break;
+            }
+        }
+
+        // Inform client that transfer is starting (150 reply)
+        char msg[PROTO_MAX_RESPONSE_LINE];
+        snprintf(msg, sizeof(msg), "Opening %s mode data connection for %s",
+                 (session->transfer_type == PROTO_TYPE_ASCII) ? "ASCII" : "BINARY",
+                 cmd->argument);
+        if (session_send_response(session, PROTO_RESP_FILE_STATUS_OK, msg) != 0)
+        {
+            response = -1;
+            break;
+        }
+
+        if (session->transfer_type == PROTO_TYPE_ASCII)
+        {
+            result = transfer_receive_file_ascii(session, abs_path, offset);
+        }
+        else
+        {
+            result = transfer_receive_file(session, abs_path, offset);
+        }
+
+        session_close_data_connection(session);
+        data_connection_open = 0;
+
+        if (result == TRANSFER_STATUS_OK)
+        {
+            response = session_send_response(session, PROTO_RESP_CLOSING_DATA,
+                                             "Transfer complete");
+            break;
+        }
+
+        if (result == TRANSFER_STATUS_CONN_ERROR)
+        {
+            response = session_send_response(session, PROTO_RESP_CONN_CLOSED,
+                                             "Data connection closed; transfer aborted");
+            break;
+        }
+
+        if (result == TRANSFER_STATUS_IO_ERROR)
+        {
+            response = session_send_response(session, PROTO_RESP_LOCAL_ERROR,
+                                             "Failed to write file to disk");
+            break;
+        }
+
+        response = session_send_response(session, PROTO_RESP_LOCAL_ERROR,
+                                         "Internal error during transfer");
+    } while (0);
+
+    if (data_connection_open)
+    {
+        session_close_data_connection(session);
+    }
+
+    if (lock_acquired)
+    {
+        file_lock_release_exclusive(abs_path);
+    }
+
+    return response;
+}
+
