@@ -16,7 +16,7 @@
 
 // Default configuration
 #define DEFAULT_PORT 21
-#define DEFAULT_ROOT_DIR "./ftp_root"
+#define DEFAULT_ROOT_DIR "/tmp" // Change as HOMEWORK REQUIREMENT ON UNIX systems
 #define DEFAULT_MAX_BACKLOG 10
 #define DEFAULT_COMMAND_TIMEOUT_MS 300000  // 5 minutes
 #define DEFAULT_MAX_CONNECTIONS 100       // Maximum concurrent connections

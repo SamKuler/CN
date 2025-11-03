@@ -96,7 +96,7 @@ static void *client_thread(void *arg)
         }
 
         // Update last activity time
-        session->last_activity = time(NULL);
+        session_update_activity(session);
 
         // Parse the command
         if (proto_parse_command(command_buffer, &cmd) != 0)
@@ -191,7 +191,8 @@ int server_init(const server_config_t *config)
 
     // Enable anonymous login by default and set default home directory
     auth_set_anonymous_enabled(1);
-    auth_set_anonymous_defaults("/pub", AUTH_PERM_READ);
+    // REQUIRED BY HOMEWORK, PRODUCTION ENVIRONMENT SHOULD RESTRICT PERMISSIONS
+    auth_set_anonymous_defaults("/", AUTH_PERM_ALL);
 
     // Try to load user database (optional, will warn if file doesn't exist)
     auth_load_users("users.db");
