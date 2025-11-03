@@ -904,6 +904,143 @@ int cmd_handle_stor(cmd_handler_context_t context, const proto_command_t *cmd)
     return response;
 }
 
+
+int cmd_handle_appe(cmd_handler_context_t context, const proto_command_t *cmd)
+{
+    session_t *session = (session_t *)context;
+
+    if (!session->authenticated)
+    {
+        return session_send_response(session, PROTO_RESP_NOT_LOGGED_IN,
+                                     "Please login with USER and PASS");
+    }
+
+    if (!cmd->has_argument)
+    {
+        return session_send_response(session, PROTO_RESP_SYNTAX_ERROR_PARAM,
+                                     "Syntax error in parameters");
+    }
+
+    // Check path access permission (WRITE required for uploading)
+    if (!session_check_path_access(session, cmd->argument, AUTH_PERM_WRITE))
+    {
+        LOG_WARN("User '%s' denied write access to: %s", session->username, cmd->argument);
+        return session_send_response(session, PROTO_RESP_FILE_UNAVAILABLE,
+                                     "Permission denied");
+    }
+
+    char abs_path[SESSION_MAX_PATH];
+    if (session_resolve_path(session, cmd->argument, abs_path, sizeof(abs_path)) != 0)
+    {
+        return session_send_response(session, PROTO_RESP_FILE_UNAVAILABLE,
+                                     "Invalid path");
+    }
+
+    // Check if path exists and is a directory (cannot append to directory)
+    if (fs_is_directory(abs_path))
+    {
+        return session_send_response(session, PROTO_RESP_FILE_UNAVAILABLE,
+                                     "Cannot append to a directory");
+    }
+
+    // Determine offset: if file exists, append to end; otherwise start from 0
+    long long offset = 0;
+    if (fs_path_exists(abs_path))
+    {
+        offset = fs_get_file_size(abs_path);
+        if (offset < 0)
+        {
+            return session_send_response(session, PROTO_RESP_FILE_UNAVAILABLE,
+                                         "Cannot read file");
+        }
+    }
+
+    int response = -1;
+    int lock_acquired = 0;
+    int data_connection_open = 0;
+    transfer_status_t result = TRANSFER_STATUS_INTERNAL_ERROR;
+
+    // Use do-while(0) for structured error handling
+    do
+    {
+        if (session_open_data_connection(session, 10000) != 0)
+        {
+            response = session_send_response(session, PROTO_RESP_CANT_OPEN_DATA,
+                                             "Can't open data connection");
+            break;
+        }
+
+        data_connection_open = 1;
+
+        if (file_lock_acquire_exclusive(abs_path) != 0)
+        {
+            response = session_send_response(session, PROTO_RESP_FILE_ACTION_ABORTED,
+                                             "File is busy, try again later");
+            break;
+        }
+        lock_acquired = 1;
+
+        // Inform client that transfer is starting (150 reply)
+        char msg[PROTO_MAX_RESPONSE_LINE];
+        snprintf(msg, sizeof(msg), "Opening %s mode data connection for %s",
+                 (session->transfer_type == PROTO_TYPE_ASCII) ? "ASCII" : "BINARY",
+                 cmd->argument);
+        if (session_send_response(session, PROTO_RESP_FILE_STATUS_OK, msg) != 0)
+        {
+            response = -1;
+            break;
+        }
+
+        if (session->transfer_type == PROTO_TYPE_ASCII)
+        {
+            result = transfer_receive_file_ascii(session, abs_path, offset);
+        }
+        else
+        {
+            result = transfer_receive_file(session, abs_path, offset);
+        }
+
+        session_close_data_connection(session);
+        data_connection_open = 0;
+
+        if (result == TRANSFER_STATUS_OK)
+        {
+            response = session_send_response(session, PROTO_RESP_CLOSING_DATA,
+                                             "Transfer complete");
+            break;
+        }
+
+        if (result == TRANSFER_STATUS_CONN_ERROR)
+        {
+            response = session_send_response(session, PROTO_RESP_CONN_CLOSED,
+                                             "Data connection closed; transfer aborted");
+            break;
+        }
+
+        if (result == TRANSFER_STATUS_IO_ERROR)
+        {
+            response = session_send_response(session, PROTO_RESP_LOCAL_ERROR,
+                                             "Failed to write file to disk");
+            break;
+        }
+
+        response = session_send_response(session, PROTO_RESP_LOCAL_ERROR,
+                                         "Internal error during transfer");
+    } while (0);
+
+    if (data_connection_open)
+    {
+        session_close_data_connection(session);
+    }
+
+    if (lock_acquired)
+    {
+        file_lock_release_exclusive(abs_path);
+    }
+
+    return response;
+}
+
 int cmd_handle_rest(cmd_handler_context_t context, const proto_command_t *cmd)
 {
     session_t *session = (session_t *)context;
