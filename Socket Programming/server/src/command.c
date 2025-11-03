@@ -290,12 +290,12 @@ int cmd_register_standard_handlers(void)
     result |= cmd_register_handler("PWD", cmd_handle_pwd, cmd_prev_handle_clear_all);
     // result |= cmd_register_handler("ABOR", cmd_handle_abor, cmd_prev_handle_clear_all);
 
-    // result |= cmd_register_handler("SYST", cmd_handle_syst, cmd_prev_handle_clear_all);
+    result |= cmd_register_handler("SYST", cmd_handle_syst, cmd_prev_handle_clear_all);
     // result |= cmd_register_handler("STAT", cmd_handle_stat, cmd_prev_handle_clear_all);
     // result |= cmd_register_handler("HELP", cmd_handle_help, cmd_prev_handle_clear_all);
 
     // result |= cmd_register_handler("SITE", cmd_handle_site, cmd_prev_handle_clear_all);
-    // result |= cmd_register_handler("NOOP", cmd_handle_noop, NULL);
+    result |= cmd_register_handler("NOOP", cmd_handle_noop, NULL);
 
     return (result == 0) ? 0 : -1;
 }

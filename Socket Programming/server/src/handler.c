@@ -1148,3 +1148,35 @@ int cmd_handle_rmd(cmd_handler_context_t context, const proto_command_t *cmd)
                                  "Directory removed");
 }
 
+// Informational commands
+
+int cmd_handle_syst(cmd_handler_context_t context, const proto_command_t *cmd)
+{
+    (void)cmd; // Unused parameter
+
+    session_t *session = (session_t *)context;
+    if (!session)
+    {
+        return -1;
+    }
+
+    // Return system type information
+    return session_send_response(session, PROTO_RESP_SYSTEM_TYPE,
+                                 "UNIX Type: L8");
+}
+
+int cmd_handle_noop(cmd_handler_context_t context, const proto_command_t *cmd)
+{
+    (void)cmd; // Unused parameter
+
+    session_t *session = (session_t *)context;
+    if (!session)
+    {
+        return -1;
+    }
+
+    //No operation, just acknowledge
+    return session_send_response(session, PROTO_RESP_OK,
+                                 "OK");
+}
+
