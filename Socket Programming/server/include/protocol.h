@@ -24,7 +24,7 @@
 /**
  * @brief Maximum length of an FTP response line.
  */
-#define PROTO_MAX_RESPONSE_LINE 512
+#define PROTO_MAX_RESPONSE_LINE 1024
 
 /**
  * @brief Structure representing a parsed FTP command.
