@@ -22,6 +22,14 @@
 #include <grp.h>
 #endif
 
+// Forward declarations
+static int format_list_line(const fs_file_info_t *info,
+                            char *buffer,
+                            size_t buffer_size);
+static transfer_status_t send_listing(session_t *session,
+                                      const char *dirpath,
+                                      const char *filter_name);
+
 transfer_status_t transfer_send_file(session_t *session, const char *filepath, long long offset)
 {
     if (!session || !filepath)
@@ -385,14 +393,115 @@ transfer_status_t transfer_receive_file_ascii(session_t *session, const char *fi
     return status;
 }
 
-transfer_status_t transfer_send_list(session_t *session, const char *dirpath)
+
+/**
+ * @brief Format a single line of file listing (detailed view).
+ * @param info Pointer to file information structure.
+ * @param buffer Output buffer for the formatted line.
+ * @param buffer_size Size of the output buffer.
+ * @return 0 on success, -1 on error.
+ */
+static int format_list_line(const fs_file_info_t *info,
+                            char *buffer,
+                            size_t buffer_size)
 {
-    if (!session || !dirpath)
+    if (!info || !buffer || buffer_size == 0)
     {
-        LOG_ERROR("Invalid parameters for transfer_send_list");
-        return TRANSFER_STATUS_INTERNAL_ERROR;
+        return -1;
     }
 
+    char type_char = '-';
+    mode_t mode = info->mode;
+
+    if (info->type == FS_TYPE_DIR)
+        type_char = 'd';
+    else if (info->type == FS_TYPE_SYMLINK)
+        type_char = 'l';
+    else
+    {
+#ifndef _WIN32
+        if (S_ISCHR(mode))
+            type_char = 'c';
+        else if (S_ISBLK(mode))
+            type_char = 'b';
+        else if (S_ISFIFO(mode))
+            type_char = 'p';
+        else if (S_ISSOCK(mode))
+            type_char = 's';
+#endif
+    }
+
+    char perms[10];
+    perms[0] = (mode & S_IRUSR) ? 'r' : '-';
+    perms[1] = (mode & S_IWUSR) ? 'w' : '-';
+    perms[2] = (mode & S_IXUSR) ? 'x' : '-';
+    perms[3] = (mode & S_IRGRP) ? 'r' : '-';
+    perms[4] = (mode & S_IWGRP) ? 'w' : '-';
+    perms[5] = (mode & S_IXGRP) ? 'x' : '-';
+    perms[6] = (mode & S_IROTH) ? 'r' : '-';
+    perms[7] = (mode & S_IWOTH) ? 'w' : '-';
+    perms[8] = (mode & S_IXOTH) ? 'x' : '-';
+    perms[9] = '\0';
+
+    char user_name[32] = "ftp";
+    char group_name[32] = "ftp";
+
+#ifndef _WIN32
+    struct passwd *pw = getpwuid(info->uid);
+    if (pw)
+        snprintf(user_name, sizeof(user_name), "%s", pw->pw_name);
+    else
+        snprintf(user_name, sizeof(user_name), "%u", info->uid);
+
+    struct group *gr = getgrgid(info->gid);
+    if (gr)
+        snprintf(group_name, sizeof(group_name), "%s", gr->gr_name);
+    else
+        snprintf(group_name, sizeof(group_name), "%u", info->gid);
+#endif
+
+    struct tm *tm_info = localtime(&info->last_modified);
+    if (!tm_info)
+    {
+        return -1;
+    }
+
+    char date_str[32];
+    strftime(date_str, sizeof(date_str), "%b %d %H:%M", tm_info);
+
+    int written;
+    if (info->type == FS_TYPE_SYMLINK && info->link_target[0] != '\0')
+    {
+        written = snprintf(buffer, buffer_size,
+                           "%c%s %3u %-8s %-8s %12lld %s %s -> %s\r\n",
+                           type_char, perms, (unsigned int)info->nlink,
+                           user_name, group_name, info->size,
+                           date_str, info->name, info->link_target);
+    }
+    else
+    {
+        written = snprintf(buffer, buffer_size,
+                           "%c%s %3u %-8s %-8s %12lld %s %s\r\n",
+                           type_char, perms, (unsigned int)info->nlink,
+                           user_name, group_name, info->size,
+                           date_str, info->name);
+    }
+
+    // Success if written fits in buffer
+    return (written >= 0 && written < (int)buffer_size) ? 0 : -1;
+}
+
+/** 
+ * @brief Send a directory listing to the client.
+ * @param session Pointer to the session structure.
+ * @param dirpath Path to the directory to list.
+ * @param filter_name Optional filter for a specific file name.
+ * @return Transfer status code.
+ */
+static transfer_status_t send_listing(session_t *session,
+                                      const char *dirpath,
+                                      const char *filter_name)
+{
     fs_file_info_t file_list[1024];
     int count = fs_list_directory(dirpath, file_list, 1024);
 
@@ -402,88 +511,21 @@ transfer_status_t transfer_send_list(session_t *session, const char *dirpath)
         return TRANSFER_STATUS_IO_ERROR;
     }
 
+    int entries_sent = 0;
     char line_buffer[1024];
-    char date_str[32];
 
     for (int i = 0; i < count; i++)
-    {
-        // Extract file type from mode
-        char type_char = '-';
-        mode_t mode = file_list[i].mode;
-
-        if (S_ISDIR(mode))
-            type_char = 'd';
-        else if (S_ISLNK(mode))
-            type_char = 'l';
-        else if (S_ISREG(mode))
-            type_char = '-';
-        else if (S_ISCHR(mode))
-            type_char = 'c';
-        else if (S_ISBLK(mode))
-            type_char = 'b';
-        else if (S_ISFIFO(mode))
-            type_char = 'p';
-        else if (S_ISSOCK(mode))
-            type_char = 's';
-
-        // Extract permissions from mode
-        char perms[10];
-        perms[0] = (mode & S_IRUSR) ? 'r' : '-';
-        perms[1] = (mode & S_IWUSR) ? 'w' : '-';
-        perms[2] = (mode & S_IXUSR) ? 'x' : '-';
-        perms[3] = (mode & S_IRGRP) ? 'r' : '-';
-        perms[4] = (mode & S_IWGRP) ? 'w' : '-';
-        perms[5] = (mode & S_IXGRP) ? 'x' : '-';
-        perms[6] = (mode & S_IROTH) ? 'r' : '-';
-        perms[7] = (mode & S_IWOTH) ? 'w' : '-';
-        perms[8] = (mode & S_IXOTH) ? 'x' : '-';
-        perms[9] = '\0';
-
-        // Get user and group names. Default is ftp, ftp
-        char user_name[32] = "ftp";
-        char group_name[32] = "ftp";
-
-#ifndef _WIN32
-        struct passwd *pw = getpwuid(file_list[i].uid);
-        if (pw)
-            snprintf(user_name, sizeof(user_name), "%s", pw->pw_name);
-        else
-            snprintf(user_name, sizeof(user_name), "%u", file_list[i].uid);
-
-        struct group *gr = getgrgid(file_list[i].gid);
-        if (gr)
-            snprintf(group_name, sizeof(group_name), "%s", gr->gr_name);
-        else
-            snprintf(group_name, sizeof(group_name), "%u", file_list[i].gid);
-#endif
-
-        // Format last modification time
-        struct tm *tm_info = localtime(&file_list[i].last_modified);
-        if (!tm_info)
+    {   
+        // If filtering by name, skip non-matching entries
+        if (filter_name && strcmp(file_list[i].name, filter_name) != 0)
         {
-            LOG_ERROR("Failed to convert modification time for %s", file_list[i].name);
+            continue;
+        }
+
+        if (format_list_line(&file_list[i], line_buffer, sizeof(line_buffer)) != 0)
+        {
+            LOG_ERROR("Failed to format listing line for %s", file_list[i].name);
             return TRANSFER_STATUS_INTERNAL_ERROR;
-        }
-        strftime(date_str, sizeof(date_str), "%b %d %H:%M", tm_info);
-
-        // Unix ls -l style
-        // Example: -rw-r--r-- 1 user group 1234 Nov 02 12:34 filename.txt
-        // For symlinks: lrwxrwxrwx 1 user group 10 Nov 02 12:34 link -> target
-        if (file_list[i].type == FS_TYPE_SYMLINK && file_list[i].link_target[0] != '\0')
-        {
-            snprintf(line_buffer, sizeof(line_buffer),
-                     "%c%s %3u %-8s %-8s %12lld %s %s -> %s\r\n",
-                     type_char, perms, (unsigned int)file_list[i].nlink,
-                     user_name, group_name, file_list[i].size,
-                     date_str, file_list[i].name, file_list[i].link_target);
-        }
-        else
-        {
-            snprintf(line_buffer, sizeof(line_buffer),
-                     "%c%s %3u %-8s %-8s %12lld %s %s\r\n",
-                     type_char, perms, (unsigned int)file_list[i].nlink,
-                     user_name, group_name, file_list[i].size,
-                     date_str, file_list[i].name);
         }
 
         if (net_send_all(session->data_socket, line_buffer, strlen(line_buffer)) != 0)
@@ -491,10 +533,65 @@ transfer_status_t transfer_send_list(session_t *session, const char *dirpath)
             LOG_ERROR("Failed to send listing line");
             return TRANSFER_STATUS_CONN_ERROR;
         }
+
+        entries_sent++;
+
+        // If filtering for a specific name, we can stop after sending it
+        if (filter_name)
+        {
+            break;
+        }
     }
 
-    LOG_INFO("Sent directory listing: %d entries", count);
+    if (filter_name && entries_sent == 0)
+    {
+        LOG_DEBUG("Entry '%s' not found in %s", filter_name, dirpath);
+        return TRANSFER_STATUS_IO_ERROR;
+    }
+
+    LOG_INFO("Sent directory listing: %d entries", entries_sent);
     return TRANSFER_STATUS_OK;
+}
+
+transfer_status_t transfer_send_list(session_t *session, const char *path)
+{
+    if (!session || !path)
+    {
+        LOG_ERROR("Invalid parameters for transfer_send_list");
+        return TRANSFER_STATUS_INTERNAL_ERROR;
+    }
+
+    if (fs_is_directory(path))
+    {
+        return send_listing(session, path, NULL);
+    }
+
+    if (!fs_path_exists(path))
+    {
+        LOG_ERROR("LIST path does not exist: %s", path);
+        return TRANSFER_STATUS_IO_ERROR;
+    }
+
+    // It's a file, extract parent directory and ls that file only
+    char filename[SESSION_MAX_PATH];
+    const char *name_part = fs_extract_filename(path);
+    if (!name_part || name_part[0] == '\0')
+    {
+        LOG_ERROR("Failed to extract filename for LIST: %s", path);
+        return TRANSFER_STATUS_INTERNAL_ERROR;
+    }
+
+    strncpy(filename, name_part, sizeof(filename) - 1);
+    filename[sizeof(filename) - 1] = '\0';
+
+    char parent_dir[SESSION_MAX_PATH];
+    if (fs_get_parent_directory(path, parent_dir, sizeof(parent_dir)) != 0)
+    {
+        LOG_ERROR("Failed to determine parent directory for LIST: %s", path);
+        return TRANSFER_STATUS_INTERNAL_ERROR;
+    }
+
+    return send_listing(session, parent_dir, filename);
 }
 
 transfer_status_t transfer_send_nlst(session_t *session, const char *dirpath)
