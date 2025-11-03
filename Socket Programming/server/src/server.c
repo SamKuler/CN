@@ -160,6 +160,7 @@ int server_init(const server_config_t *config)
     LOG_INFO("Max backlog: %d", g_config.max_backlog);
     LOG_INFO("Command timeout: %d ms", g_config.command_timeout_ms);
     LOG_INFO("Max connections: %d", g_config.max_connections);
+    LOG_INFO("Address family: %d", g_config.address_family);
 
     // Verify root directory exists
     if (!fs_is_directory(g_config.root_dir))
@@ -217,7 +218,7 @@ int server_init(const server_config_t *config)
     LOG_INFO("Registered %d command handlers", cmd_get_handler_count());
 
     // Create listening socket
-    g_listening_socket = net_create_listening_socket(NET_AF_IPV4,
+    g_listening_socket = net_create_listening_socket(g_config.address_family,
                                                      g_config.port,
                                                      g_config.max_backlog);
     if (g_listening_socket == INVALID_SOCKET_T)

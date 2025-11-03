@@ -8,6 +8,8 @@
 #ifndef SERVER_H
 #define SERVER_H
 
+#include "network.h"
+
 #include <stdint.h>
 
 /**
@@ -15,11 +17,12 @@
  */
 typedef struct
 {
-    uint16_t port;          // Port to listen on
-    char root_dir[1024];    // Root directory for FTP
-    int max_backlog;        // Maximum pending connections
-    int command_timeout_ms; // Command timeout in milliseconds
-    int max_connections;    // Maximum concurrent connections (-1 for unlimited)
+    uint16_t port;                    // Port to listen on
+    char root_dir[1024];              // Root directory for FTP
+    int max_backlog;                  // Maximum pending connections
+    int command_timeout_ms;           // Command timeout in milliseconds
+    int max_connections;              // Maximum concurrent connections (-1 for unlimited)
+    net_addr_family_t address_family; // Address family: NET_AF_IPV4, NET_AF_IPV6, NET_AF_UNSPEC
 } server_config_t;
 
 /**

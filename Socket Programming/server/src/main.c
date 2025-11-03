@@ -7,6 +7,7 @@
 
 #include "server.h"
 #include "logger.h"
+#include "network.h"
 
 #include <stdio.h>
 #include <stdlib.h>
@@ -19,6 +20,7 @@
 #define DEFAULT_MAX_BACKLOG 10
 #define DEFAULT_COMMAND_TIMEOUT_MS 300000  // 5 minutes
 #define DEFAULT_MAX_CONNECTIONS 100       // Maximum concurrent connections
+#define DEFAULT_ADDRESS_FAMILY NET_AF_UNSPEC  // Default to unspecified (auto-detect)
 
 /**
  * @brief Signal handler for graceful shutdown
@@ -36,8 +38,9 @@ void print_usage(const char *program_name)
 {
     printf("Usage: %s [options]\n", program_name);
     printf("Options:\n");
-    printf("  -p <port>       Port to listen on (default: %d)\n", DEFAULT_PORT);
-    printf("  -r <root_dir>   Root directory for FTP (default: %s)\n", DEFAULT_ROOT_DIR);
+    printf("  -p, -port <port>       Port to listen on (default: %d)\n", DEFAULT_PORT);
+    printf("  -r, -root <root_dir>   Root directory for FTP (default: %s)\n", DEFAULT_ROOT_DIR);
+    printf("  -a, -addr <family>     Address family: ipv4, ipv6, unspec (default: unspec)\n");
     printf("  -l <log_level>  Log level: DEBUG, INFO, WARN, ERROR (default: INFO)\n");
     printf("  -c <max_conn>   Maximum concurrent connections (default: %d, -1 for unlimited)\n", DEFAULT_MAX_CONNECTIONS);
     printf("  -h              Show this help message\n");
@@ -53,7 +56,8 @@ int main(int argc, char *argv[])
         .port = DEFAULT_PORT,
         .max_backlog = DEFAULT_MAX_BACKLOG,
         .command_timeout_ms = DEFAULT_COMMAND_TIMEOUT_MS,
-        .max_connections = DEFAULT_MAX_CONNECTIONS
+        .max_connections = DEFAULT_MAX_CONNECTIONS,
+        .address_family = DEFAULT_ADDRESS_FAMILY
     };
     strncpy(config.root_dir, DEFAULT_ROOT_DIR, sizeof(config.root_dir) - 1);
     config.root_dir[sizeof(config.root_dir) - 1] = '\0';
@@ -62,14 +66,30 @@ int main(int argc, char *argv[])
 
     for (int i = 1; i < argc; i++)
     {
-        if (strcmp(argv[i], "-p") == 0 && i + 1 < argc)
+        if ((strcmp(argv[i], "-p") == 0 || strcmp(argv[i], "-port") == 0) && i + 1 < argc)
         {
             config.port = (uint16_t)atoi(argv[++i]);
         }
-        else if (strcmp(argv[i], "-r") == 0 && i + 1 < argc)
+        else if ((strcmp(argv[i], "-r") == 0 || strcmp(argv[i], "-root") == 0) && i + 1 < argc)
         {
             strncpy(config.root_dir, argv[++i], sizeof(config.root_dir) - 1);
             config.root_dir[sizeof(config.root_dir) - 1] = '\0';
+        }
+        else if ((strcmp(argv[i], "-a") == 0 || strcmp(argv[i], "-addr") == 0) && i + 1 < argc)
+        {
+            i++;
+            if (strcmp(argv[i], "ipv4") == 0)
+                config.address_family = NET_AF_IPV4;
+            else if (strcmp(argv[i], "ipv6") == 0)
+                config.address_family = NET_AF_IPV6;
+            else if (strcmp(argv[i], "unspec") == 0)
+                config.address_family = NET_AF_UNSPEC;
+            else
+            {
+                fprintf(stderr, "Invalid address family: %s\n", argv[i]);
+                print_usage(argv[0]);
+                return 1;
+            }
         }
         else if (strcmp(argv[i], "-l") == 0 && i + 1 < argc)
         {
