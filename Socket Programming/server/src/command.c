@@ -18,6 +18,7 @@ typedef struct
 {
     char command[PROTO_MAX_CMD_NAME];
     cmd_handler_t handler;
+    cmd_handler_t prev_handler;
     int in_use; //
 } cmd_handler_entry_t;
 
@@ -54,7 +55,7 @@ void cmd_cleanup(void)
     g_initialized = 0;
 }
 
-int cmd_register_handler(const char *command, cmd_handler_t handler)
+int cmd_register_handler(const char *command, cmd_handler_t handler, cmd_handler_t prev_handler)
 {
     if (!g_initialized)
         return -1;
@@ -75,6 +76,7 @@ int cmd_register_handler(const char *command, cmd_handler_t handler)
         {
             // Update existing handler
             g_handlers[i].handler = handler;
+            g_handlers[i].prev_handler = prev_handler;
             return 0;
         }
     }
@@ -87,6 +89,7 @@ int cmd_register_handler(const char *command, cmd_handler_t handler)
             strncpy(g_handlers[i].command, cmd_upper, PROTO_MAX_CMD_NAME - 1);
             g_handlers[i].command[PROTO_MAX_CMD_NAME - 1] = '\0';
             g_handlers[i].handler = handler;
+            g_handlers[i].prev_handler = prev_handler;
             g_handlers[i].in_use = 1;
             return 0;
         }
@@ -117,6 +120,7 @@ int cmd_unregister_handler(const char *command)
         {
             g_handlers[i].in_use = 0;
             g_handlers[i].handler = NULL;
+            g_handlers[i].prev_handler = NULL;
             memset(g_handlers[i].command, 0, PROTO_MAX_CMD_NAME);
             return 0;
         }
@@ -139,6 +143,12 @@ int cmd_dispatch(cmd_handler_context_t context, const proto_command_t *cmd)
         if (g_handlers[i].in_use && strcmp(g_handlers[i].command, cmd->command) == 0)
         {
             // Call handler
+            if (g_handlers[i].prev_handler)
+            {
+                int res = g_handlers[i].prev_handler(context, cmd);
+                if (res != 0)
+                    return res;
+            }
             return g_handlers[i].handler(context, cmd);
         }
     }
@@ -186,6 +196,11 @@ int cmd_get_handler_count(void)
     return count;
 }
 
+// Forward declarations for previous command handlers
+extern int cmd_prev_handle_clear_restart(cmd_handler_context_t context, const proto_command_t *cmd); // CLEAR RESTART
+extern int cmd_prev_handle_clear_rename(cmd_handler_context_t context, const proto_command_t *cmd);  // CLEAR RENAME
+extern int cmd_prev_handle_clear_all(cmd_handler_context_t context, const proto_command_t *cmd);     // CLEAR RESTART & RENAME
+
 // Forward declarations for standard command handlers
 // RFC 959 4.1 FTP COMMANDS
 
@@ -215,9 +230,9 @@ extern int cmd_handle_rest(cmd_handler_context_t context, const proto_command_t 
 extern int cmd_handle_stor(cmd_handler_context_t context, const proto_command_t *cmd); // STORE
 extern int cmd_handle_stou(cmd_handler_context_t context, const proto_command_t *cmd); // STORE UNIQUE
 extern int cmd_handle_retr(cmd_handler_context_t context, const proto_command_t *cmd); // RETRIEVE
+extern int cmd_handle_appe(cmd_handler_context_t context, const proto_command_t *cmd); // APPEND(with create)
 extern int cmd_handle_list(cmd_handler_context_t context, const proto_command_t *cmd); // LIST
 extern int cmd_handle_nlst(cmd_handler_context_t context, const proto_command_t *cmd); // NAME LIST
-extern int cmd_handle_appe(cmd_handler_context_t context, const proto_command_t *cmd); // APPEND(with create)
 extern int cmd_handle_rnfr(cmd_handler_context_t context, const proto_command_t *cmd); // RENAME FROM
 extern int cmd_handle_rnto(cmd_handler_context_t context, const proto_command_t *cmd); // RENAME TO
 extern int cmd_handle_dele(cmd_handler_context_t context, const proto_command_t *cmd); // DELETE
@@ -243,44 +258,44 @@ int cmd_register_standard_handlers(void)
     int result = 0;
 
     // Register all standard FTP commands
-    result |= cmd_register_handler("USER", cmd_handle_user);
-    result |= cmd_register_handler("PASS", cmd_handle_pass);
-    result |= cmd_register_handler("ACCT", cmd_handle_acct);
-    result |= cmd_register_handler("CWD", cmd_handle_cwd);
-    result |= cmd_register_handler("CDUP", cmd_handle_cdup);
-    result |= cmd_register_handler("SMNT", cmd_handle_smnt);
+    result |= cmd_register_handler("USER", cmd_handle_user, cmd_prev_handle_clear_all);
+    result |= cmd_register_handler("PASS", cmd_handle_pass, cmd_prev_handle_clear_all);
+    result |= cmd_register_handler("ACCT", cmd_handle_acct, cmd_prev_handle_clear_all);
+    result |= cmd_register_handler("CWD", cmd_handle_cwd, cmd_prev_handle_clear_all);
+    result |= cmd_register_handler("CDUP", cmd_handle_cdup, cmd_prev_handle_clear_all);
+    result |= cmd_register_handler("SMNT", cmd_handle_smnt, cmd_prev_handle_clear_all);
 
-    result |= cmd_register_handler("QUIT", cmd_handle_quit);
-    result |= cmd_register_handler("REIN", cmd_handle_rein);
+    result |= cmd_register_handler("QUIT", cmd_handle_quit, cmd_prev_handle_clear_all);
+    result |= cmd_register_handler("REIN", cmd_handle_rein, cmd_prev_handle_clear_all);
 
-    result |= cmd_register_handler("PORT", cmd_handle_port);
-    result |= cmd_register_handler("PASV", cmd_handle_pasv);
-    result |= cmd_register_handler("TYPE", cmd_handle_type);
-    result |= cmd_register_handler("STRU", cmd_handle_stru);
-    result |= cmd_register_handler("MODE", cmd_handle_mode);
+    result |= cmd_register_handler("PORT", cmd_handle_port, cmd_prev_handle_clear_all);
+    result |= cmd_register_handler("PASV", cmd_handle_pasv, cmd_prev_handle_clear_all);
+    result |= cmd_register_handler("TYPE", cmd_handle_type, cmd_prev_handle_clear_all);
+    result |= cmd_register_handler("STRU", cmd_handle_stru, cmd_prev_handle_clear_all);
+    result |= cmd_register_handler("MODE", cmd_handle_mode, cmd_prev_handle_clear_all);
 
-    result |= cmd_register_handler("ALLO", cmd_handle_allo);
-    result |= cmd_register_handler("REST", cmd_handle_rest);
-    result |= cmd_register_handler("STOR", cmd_handle_stor);
-    result |= cmd_register_handler("STOU", cmd_handle_stou);
-    result |= cmd_register_handler("RETR", cmd_handle_retr);
-    result |= cmd_register_handler("LIST", cmd_handle_list);
-    result |= cmd_register_handler("NLST", cmd_handle_nlst);
-    result |= cmd_register_handler("APPE", cmd_handle_appe);
-    result |= cmd_register_handler("RNFR", cmd_handle_rnfr);
-    result |= cmd_register_handler("RNTO", cmd_handle_rnto);
-    result |= cmd_register_handler("DELE", cmd_handle_dele);
-    result |= cmd_register_handler("RMD", cmd_handle_rmd);
-    result |= cmd_register_handler("MKD", cmd_handle_mkd);
-    result |= cmd_register_handler("PWD", cmd_handle_pwd);
-    result |= cmd_register_handler("ABOR", cmd_handle_abor);
+    // result |= cmd_register_handler("ALLO", cmd_handle_allo, cmd_prev_handle_clear_all);
+    result |= cmd_register_handler("REST", cmd_handle_rest, cmd_prev_handle_clear_rename);
+    result |= cmd_register_handler("STOR", cmd_handle_stor, cmd_prev_handle_clear_rename);
+    // result |= cmd_register_handler("STOU", cmd_handle_stou, cmd_prev_handle_clear_rename);
+    result |= cmd_register_handler("RETR", cmd_handle_retr, cmd_prev_handle_clear_rename);
+    // result |= cmd_register_handler("APPE", cmd_handle_appe, cmd_prev_handle_clear_rename);
+    result |= cmd_register_handler("LIST", cmd_handle_list, cmd_prev_handle_clear_all);
+    // result |= cmd_register_handler("NLST", cmd_handle_nlst, cmd_prev_handle_clear_all);
+    // result |= cmd_register_handler("RNFR", cmd_handle_rnfr, cmd_prev_handle_clear_all);
+    // result |= cmd_register_handler("RNTO", cmd_handle_rnto, cmd_prev_handle_clear_restart);
+    // result |= cmd_register_handler("DELE", cmd_handle_dele, cmd_prev_handle_clear_all);
+    result |= cmd_register_handler("RMD", cmd_handle_rmd, cmd_prev_handle_clear_all);
+    result |= cmd_register_handler("MKD", cmd_handle_mkd, cmd_prev_handle_clear_all);
+    result |= cmd_register_handler("PWD", cmd_handle_pwd, cmd_prev_handle_clear_all);
+    // result |= cmd_register_handler("ABOR", cmd_handle_abor, cmd_prev_handle_clear_all);
 
-    result |= cmd_register_handler("SYST", cmd_handle_syst);
-    result |= cmd_register_handler("STAT", cmd_handle_stat);
-    result |= cmd_register_handler("HELP", cmd_handle_help);
+    // result |= cmd_register_handler("SYST", cmd_handle_syst, cmd_prev_handle_clear_all);
+    // result |= cmd_register_handler("STAT", cmd_handle_stat, cmd_prev_handle_clear_all);
+    // result |= cmd_register_handler("HELP", cmd_handle_help, cmd_prev_handle_clear_all);
 
-    result |= cmd_register_handler("SITE", cmd_handle_site);
-    result |= cmd_register_handler("NOOP", cmd_handle_noop);
+    // result |= cmd_register_handler("SITE", cmd_handle_site, cmd_prev_handle_clear_all);
+    // result |= cmd_register_handler("NOOP", cmd_handle_noop, NULL);
 
     return (result == 0) ? 0 : -1;
 }

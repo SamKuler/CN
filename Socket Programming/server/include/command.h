@@ -53,13 +53,14 @@ void cmd_cleanup(void);
  * @brief Registers a command handler.
  *
  * Multiple handlers can be registered. When a command is parsed,
- * the matching handler will be called.
+ * first the previous handler (if any) will be called, then the matching handler will be called.
  *
  * @param command The command name (e.g., "USER", "PASS"). Case-insensitive.
  * @param handler The handler function to call for this command.
+ * @param prev_handler The previous handler function to call before the handler (can be NULL).
  * @return 0 on success, -1 if the handler table is full or invalid parameters.
  */
-int cmd_register_handler(const char *command, cmd_handler_t handler);
+int cmd_register_handler(const char *command, cmd_handler_t handler, cmd_handler_t prev_handler);
 
 /**
  * @brief Unregisters a command handler.
