@@ -686,6 +686,18 @@ long long session_pop_restart_offset(session_t *session)
     return offset;
 }
 
+void session_clear_restart_offset(session_t *session)
+{
+    if (!session)
+    {
+        return;
+    }
+
+    pthread_mutex_lock(&session->lock);
+    session->restart_offset = 0;
+    pthread_mutex_unlock(&session->lock);
+}
+
 int session_set_rename_from(session_t *session, const char *path)
 {
     if (!session || !path)
@@ -732,6 +744,19 @@ int session_pop_rename_from(session_t *session,
     pthread_mutex_unlock(&session->lock);
 
     return 0;
+}
+
+void session_clear_rename_state(session_t *session)
+{
+    if (!session)
+    {
+        return;
+    }
+
+    pthread_mutex_lock(&session->lock);
+    session->rename_pending = 0;
+    memset(session->rename_from, 0, sizeof(session->rename_from));
+    pthread_mutex_unlock(&session->lock);
 }
 
 void session_update_activity(session_t *session)

@@ -300,6 +300,13 @@ int session_set_restart_offset(session_t *session, long long offset);
 long long session_pop_restart_offset(session_t *session);
 
 /**
+ * @brief Clears any pending restart offset without using it.
+ *
+ * @param session Pointer to session
+ */
+void session_clear_restart_offset(session_t *session);
+
+/**
  * @brief Stores the source path for a rename operation (RNFR).
  *
  * @param session Pointer to session
@@ -319,6 +326,13 @@ int session_set_rename_from(session_t *session, const char *path);
 int session_pop_rename_from(session_t *session,
                             char *path,
                             size_t buffer_size);
+
+/**
+ * @brief Clears any pending rename state.
+ *
+ * @param session Pointer to session
+ */
+void session_clear_rename_state(session_t *session);
 
 /**
  * @brief Updates the last activity timestamp.
