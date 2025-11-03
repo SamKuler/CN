@@ -4,8 +4,9 @@
  * @version 0.1
  * @date 2025-11-02
  */
-
+#define _DEFAULT_SOURCE
 #include "transfer.h"
+
 #include "filesys.h"
 #include "network.h"
 #include "logger.h"

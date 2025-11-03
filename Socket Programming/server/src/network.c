@@ -5,6 +5,7 @@
  * @version 0.1
  * @date 2025-10-19
  */
+#define _POSIX_C_SOURCE 200112L
 #include "network.h"
 
 #include <stdio.h>

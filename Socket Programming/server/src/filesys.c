@@ -6,6 +6,7 @@
  * @date 2025-11-3
  *
  */
+#define _XOPEN_SOURCE 500
 #include "filesys.h"
 
 #include <limits.h>

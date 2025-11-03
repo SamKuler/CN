@@ -6,8 +6,10 @@
  * @date 2025-10-15
  *
  */
+#define _XOPEN_SOURCE 500
 #include "logger.h"
 #include "filesys.h"
+#include "utils.h"
 #include <stdio.h>
 #include <stdlib.h>
 #include <stdarg.h>
