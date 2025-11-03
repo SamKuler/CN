@@ -184,6 +184,16 @@ int session_check_path_access(session_t *session, const char *path, auth_permiss
 int session_change_directory(session_t *session, const char *path);
 
 /**
+ * @brief Copies the current working directory into the provided buffer.
+ *
+ * @param session Pointer to session
+ * @param buffer Output buffer
+ * @param buffer_size Size of the output buffer
+ * @return 0 on success, -1 on error
+ */
+int session_get_current_directory(session_t *session, char *buffer, size_t buffer_size);
+
+/**
  * @brief Gets the absolute filesystem path from a session-relative path.
  *
  * Resolves relative paths against current_dir and prepends root_dir.

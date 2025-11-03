@@ -369,6 +369,21 @@ int session_change_directory(session_t *session, const char *path)
     return 0;
 }
 
+int session_get_current_directory(session_t *session, char *buffer, size_t buffer_size)
+{
+    if (!session || !buffer || buffer_size == 0)
+    {
+        return -1;
+    }
+
+    pthread_mutex_lock(&session->lock);
+    strncpy(buffer, session->current_dir, buffer_size - 1);
+    buffer[buffer_size - 1] = '\0';
+    pthread_mutex_unlock(&session->lock);
+
+    return 0;
+}
+
 int session_resolve_path(session_t *session,
                          const char *relative_path,
                          char *absolute_path,
