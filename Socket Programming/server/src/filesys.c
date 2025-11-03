@@ -2,8 +2,8 @@
  * @file filesys.c
  * @brief Implementations for filesystem helper functions.
  *
- * @version 0.2
- * @date 2025-11-2
+ * @version 0.3
+ * @date 2025-11-3
  *
  */
 #include "filesys.h"
@@ -800,6 +800,62 @@ int fs_create_directory(const char *path)
 
     return -1;
 #endif
+}
+
+int fs_get_parent_directory(const char *path, char *parent, size_t parent_size)
+{
+    if (!path || !parent || parent_size == 0)
+        return -1;
+
+    strncpy(parent, path, parent_size - 1);
+    parent[parent_size - 1] = '\0';
+
+    size_t len = strlen(parent);
+    if (len == 0)
+        return -1;
+
+    // Remove trailing slashes
+    while (len > 0 && (parent[len - 1] == '/' || parent[len - 1] == '\\'))
+    {
+        parent[len - 1] = '\0';
+        len--;
+    }
+
+    // If the path is now empty, return error as there is no parent
+    if (len == 0)
+        return -1;
+
+    // Find the last path separator
+    char *slash = strrchr(parent, '/');
+#ifdef _WIN32
+    char *backslash = strrchr(parent, '\\');
+    if (!slash || (backslash && backslash > slash)) // use the rightmost separator
+        slash = backslash;
+#endif
+
+    // No separator found, no parent directory
+    if (!slash)
+        return -1;
+
+#ifdef _WIN32
+    // Handle drive letter case (e.g., C:\)
+    if (slash == parent + 2 && parent[1] == ':')
+    {
+        slash[1] = '\0'; // Keep the drive letter and colon.
+        return 0;
+    }
+#endif
+
+    // Unix root directory case
+    if (slash == parent)
+    {
+        slash[1] = '\0';
+        return 0;
+    }
+
+    // Truncate at the last separator
+    *slash = '\0';
+    return 0;
 }
 
 int fs_delete_file(const char *path)

@@ -7,8 +7,8 @@
  *
  * TODO: Error codes are intended to be used afterward.
  *
- * @version 0.2
- * @date 2025-11-2
+ * @version 0.3
+ * @date 2025-11-3
  *
  */
 #ifndef FILESYS_H
@@ -174,5 +174,18 @@ int fs_delete_file(const char *path);
  * @retval -1 - Failure or error
  */
 int fs_delete_directory(const char *path, int force_delete);
+
+/**
+ * @brief Get the parent directory of the given path.
+ *
+ * Copies the parent path into the provided buffer, normalizing trailing
+ * separators. Root paths ("/" or "C:\") remain as "/" or "C:\".
+ *
+ * @param path Input path string
+ * @param parent Output buffer for parent directory
+ * @param parent_size Size of the output buffer, including the terminator
+ * @return 0 on success, -1 on error
+ */
+int fs_get_parent_directory(const char *path, char *parent, size_t parent_size);
 
 #endif
