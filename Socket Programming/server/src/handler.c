@@ -496,7 +496,7 @@ int cmd_handle_type(cmd_handler_context_t context, const proto_command_t *cmd)
                                                           : "E";
 
     char msg[128];
-    snprintf(msg, sizeof(msg), "Type set to %s", type_name);
+    snprintf(msg, sizeof(msg), "Type set to %s.", type_name);
 
     return session_send_response(session, PROTO_RESP_OK, msg);
 }
