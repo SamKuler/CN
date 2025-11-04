@@ -721,7 +721,7 @@ int cmd_handle_retr(cmd_handler_context_t context, const proto_command_t *cmd)
         // Data connection will be closed by the transfer thread
         // File lock will be released by the transfer thread
         response = 0;
-        lock_acquired = 0; // Don't release lock here, transfer thread will do it
+        lock_acquired = 0;          // Don't release lock here, transfer thread will do it
         data_connection_opened = 0; // Don't close data connection here
     } while (0);
 
@@ -875,7 +875,7 @@ int cmd_handle_stor(cmd_handler_context_t context, const proto_command_t *cmd)
         // Data connection will be closed by the transfer thread
         // File lock will be released by the transfer thread
         response = 0;
-        lock_acquired = 0; // Don't release lock here, transfer thread will do it
+        lock_acquired = 0;        // Don't release lock here, transfer thread will do it
         data_connection_open = 0; // Don't close data connection here
     } while (0);
 
@@ -891,7 +891,6 @@ int cmd_handle_stor(cmd_handler_context_t context, const proto_command_t *cmd)
 
     return response;
 }
-
 
 int cmd_handle_appe(cmd_handler_context_t context, const proto_command_t *cmd)
 {
@@ -1000,7 +999,7 @@ int cmd_handle_appe(cmd_handler_context_t context, const proto_command_t *cmd)
         // Data connection will be closed by the transfer thread
         // File lock will be released by the transfer thread
         response = 0;
-        lock_acquired = 0; // Don't release lock here, transfer thread will do it
+        lock_acquired = 0;        // Don't release lock here, transfer thread will do it
         data_connection_open = 0; // Don't close data connection here
     } while (0);
 
@@ -1381,6 +1380,281 @@ int cmd_handle_rmd(cmd_handler_context_t context, const proto_command_t *cmd)
                                  "Directory removed");
 }
 
+int cmd_handle_rnfr(cmd_handler_context_t context, const proto_command_t *cmd)
+{
+    session_t *session = (session_t *)context;
+
+    if (!session->authenticated)
+    {
+        return session_send_response(session, PROTO_RESP_NOT_LOGGED_IN,
+                                     "Please login with USER and PASS");
+    }
+
+    if (!cmd->has_argument)
+    {
+        return session_send_response(session, PROTO_RESP_SYNTAX_ERROR_PARAM,
+                                     "Syntax error in parameters");
+    }
+
+    // Check rename permission on source
+    if (!session_check_path_access(session, cmd->argument, AUTH_PERM_RENAME))
+    {
+        LOG_WARN("User '%s' denied rename access to: %s", session->username, cmd->argument);
+        return session_send_response(session, PROTO_RESP_FILE_UNAVAILABLE,
+                                     "Permission denied");
+    }
+
+    // Resolve and check if file/directory exists
+    char abs_path[SESSION_MAX_PATH];
+    if (session_resolve_path(session, cmd->argument, abs_path, sizeof(abs_path)) != 0)
+    {
+        return session_send_response(session, PROTO_RESP_FILE_UNAVAILABLE,
+                                     "Invalid path");
+    }
+
+    if (!fs_path_exists(abs_path))
+    {
+        return session_send_response(session, PROTO_RESP_FILE_UNAVAILABLE,
+                                     "File or directory not found");
+    }
+
+    // Try to acquire exclusive lock to ensure file is not in use
+    // We acquire and immediately release it just to check availability
+    if (file_lock_acquire_exclusive(abs_path) != 0)
+    {
+        return session_send_response(session, PROTO_RESP_FILE_ACTION_ABORTED,
+                                     "File is busy, try again later");
+    }
+    file_lock_release_exclusive(abs_path);
+
+    // Store the source path for rename
+    if (session_set_rename_from(session, abs_path) != 0)
+    {
+        return session_send_response(session, PROTO_RESP_LOCAL_ERROR,
+                                     "Failed to store rename source");
+    }
+
+    return session_send_response(session, PROTO_RESP_FILE_ACTION_PENDING,
+                                 "File exists, ready for destination name");
+}
+
+int cmd_handle_rnto(cmd_handler_context_t context, const proto_command_t *cmd)
+{
+    session_t *session = (session_t *)context;
+
+    if (!session->authenticated)
+    {
+        return session_send_response(session, PROTO_RESP_NOT_LOGGED_IN,
+                                     "Please login with USER and PASS");
+    }
+
+    if (!cmd->has_argument)
+    {
+        return session_send_response(session, PROTO_RESP_SYNTAX_ERROR_PARAM,
+                                     "Syntax error in parameters");
+    }
+
+    // Get the source path from RNFR
+    char from_path[SESSION_MAX_PATH];
+    if (session_get_rename_from(session, from_path, sizeof(from_path)) != 0)
+    {
+        return session_send_response(session, PROTO_RESP_BAD_COMMAND_SEQUENCE,
+                                     "Bad sequence of commands (use RNFR first)");
+    }
+
+    // Check rename permission for destination
+    // We need to check the destination directory for write access
+    if (!session_check_path_access(session, cmd->argument, AUTH_PERM_RENAME))
+    {
+        LOG_WARN("User '%s' denied rename access to destination: %s", session->username, cmd->argument);
+        return session_send_response(session, PROTO_RESP_FILE_UNAVAILABLE,
+                                     "Permission denied for destination");
+    }
+
+    // Resolve destination path
+    char to_path[SESSION_MAX_PATH];
+    if (session_resolve_path(session, cmd->argument, to_path, sizeof(to_path)) != 0)
+    {
+        return session_send_response(session, PROTO_RESP_FILE_UNAVAILABLE,
+                                     "Invalid destination path");
+    }
+
+    // Check if destination already exists
+    if (fs_path_exists(to_path))
+    {
+        return session_send_response(session, PROTO_RESP_FILE_UNAVAILABLE,
+                                     "Destination already exists");
+    }
+
+    // Get parent directory of destination
+    char dest_parent[SESSION_MAX_PATH];
+    if (fs_get_parent_directory(to_path, dest_parent, sizeof(dest_parent)) == 0)
+    {
+        // Check if parent directory exists
+        if (!fs_path_exists(dest_parent))
+        {
+            return session_send_response(session, PROTO_RESP_FILE_UNAVAILABLE,
+                                         "Destination directory does not exist");
+        }
+        if (!fs_is_directory(dest_parent))
+        {
+            return session_send_response(session, PROTO_RESP_FILE_UNAVAILABLE,
+                                         "Invalid destination path");
+        }
+    }
+
+    int response = -1;
+    int lock_acquired = 0;
+
+    // Use do-while(0) for structured error handling
+    do
+    {
+        // Acquire exclusive lock on source file
+        if (file_lock_acquire_exclusive(from_path) != 0)
+        {
+            response = session_send_response(session, PROTO_RESP_FILE_ACTION_ABORTED,
+                                             "File is busy, try again later");
+            break;
+        }
+        lock_acquired = 1;
+
+        // Revalidate source file exists while holding lock
+        if (!fs_path_exists(from_path))
+        {
+            response = session_send_response(session, PROTO_RESP_FILE_UNAVAILABLE,
+                                             "Source file no longer exists");
+            break;
+        }
+
+        // Check again if destination exists
+        if (fs_path_exists(to_path))
+        {
+            response = session_send_response(session, PROTO_RESP_FILE_UNAVAILABLE,
+                                             "Destination already exists");
+            break;
+        }
+
+        // Perform the rename
+        if (fs_rename(from_path, to_path) != 0)
+        {
+            response = session_send_response(session, PROTO_RESP_FILE_UNAVAILABLE,
+                                             "Rename failed");
+            break;
+        }
+
+        LOG_INFO("User '%s' renamed '%s' to '%s'", session->username, from_path, to_path);
+        response = session_send_response(session, PROTO_RESP_FILE_ACTION_OK,
+                                         "Rename successful");
+    } while (0);
+
+    if (lock_acquired)
+    {
+        // Lock is on the old path (from_path), which may no longer exist after rename
+        file_lock_release_exclusive(from_path);
+    }
+
+    // Clear the stored RNFR path regardless of success/failure
+    session_clear_rename_state(session);
+
+    return response;
+}
+
+int cmd_handle_dele(cmd_handler_context_t context, const proto_command_t *cmd)
+{
+    session_t *session = (session_t *)context;
+
+    if (!session->authenticated)
+    {
+        return session_send_response(session, PROTO_RESP_NOT_LOGGED_IN,
+                                     "Please login with USER and PASS");
+    }
+
+    if (!cmd->has_argument)
+    {
+        return session_send_response(session, PROTO_RESP_SYNTAX_ERROR_PARAM,
+                                     "Syntax error in parameters");
+    }
+
+    // Check delete permission
+    if (!session_check_path_access(session, cmd->argument, AUTH_PERM_DELETE))
+    {
+        LOG_WARN("User '%s' denied delete access to: %s", session->username, cmd->argument);
+        return session_send_response(session, PROTO_RESP_FILE_UNAVAILABLE,
+                                     "Permission denied");
+    }
+
+    char abs_path[SESSION_MAX_PATH];
+    if (session_resolve_path(session, cmd->argument, abs_path, sizeof(abs_path)) != 0)
+    {
+        return session_send_response(session, PROTO_RESP_FILE_UNAVAILABLE,
+                                     "Invalid path");
+    }
+
+    // Check if path exists
+    if (!fs_path_exists(abs_path))
+    {
+        return session_send_response(session, PROTO_RESP_FILE_UNAVAILABLE,
+                                     "File not found");
+    }
+
+    // Check if it's a directory (use RMD for directories)
+    if (fs_is_directory(abs_path))
+    {
+        return session_send_response(session, PROTO_RESP_FILE_UNAVAILABLE,
+                                     "Cannot delete directory with DELE (use RMD)");
+    }
+
+    int response = -1;
+    int lock_acquired = 0;
+
+    // Use do-while(0) for structured error handling
+    do
+    {
+        // Acquire exclusive lock to ensure file is not in use
+        if (file_lock_acquire_exclusive(abs_path) != 0)
+        {
+            response = session_send_response(session, PROTO_RESP_FILE_ACTION_ABORTED,
+                                             "File is busy, try again later");
+            break;
+        }
+        lock_acquired = 1;
+
+        // Revalidate file state while holding the lock
+        if (!fs_path_exists(abs_path))
+        {
+            response = session_send_response(session, PROTO_RESP_FILE_UNAVAILABLE,
+                                             "File no longer exists");
+            break;
+        }
+
+        if (fs_is_directory(abs_path))
+        {
+            response = session_send_response(session, PROTO_RESP_FILE_UNAVAILABLE,
+                                             "Cannot delete directory with DELE (use RMD)");
+            break;
+        }
+
+        // Delete the file
+        if (fs_delete_file(abs_path) != 0)
+        {
+            response = session_send_response(session, PROTO_RESP_FILE_UNAVAILABLE,
+                                             "Failed to delete file");
+            break;
+        }
+
+        LOG_INFO("User '%s' deleted file: %s", session->username, abs_path);
+        response = session_send_response(session, PROTO_RESP_FILE_ACTION_OK,
+                                         "File deleted");
+    } while (0);
+
+    if (lock_acquired)
+    {
+        file_lock_release_exclusive(abs_path);
+    }
+
+    return response;
+}
+
 int cmd_handle_abor(cmd_handler_context_t context, const proto_command_t *cmd)
 {
     (void)cmd; // Unused parameter
@@ -1411,7 +1685,7 @@ int cmd_handle_abor(cmd_handler_context_t context, const proto_command_t *cmd)
         // The transfer thread will send the final 226 response
         // Don't clear abort flag yet - transfer thread will do it
         return session_send_response(session, PROTO_RESP_CONN_CLOSED,
-                                       "Data connection closed; transfer aborted");
+                                     "Data connection closed; transfer aborted");
     }
 
     // No transfer was in progress
@@ -1446,8 +1720,7 @@ int cmd_handle_noop(cmd_handler_context_t context, const proto_command_t *cmd)
         return -1;
     }
 
-    //No operation, just acknowledge
+    // No operation, just acknowledge
     return session_send_response(session, PROTO_RESP_OK,
                                  "OK");
 }
-

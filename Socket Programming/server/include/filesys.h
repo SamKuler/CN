@@ -184,6 +184,16 @@ int fs_delete_file(const char *path);
 int fs_delete_directory(const char *path, int force_delete);
 
 /**
+ * @brief Rename a file or directory.
+ * @param old_path Path to the existing file or directory.
+ * @param new_path New path for the file or directory.
+ * @return int
+ * @retval 0 - Success
+ * @retval -1 - Failure or error
+ */
+int fs_rename(const char *old_path, const char *new_path);
+
+/**
  * @brief Get the parent directory of the given path.
  *
  * Copies the parent path into the provided buffer, normalizing trailing

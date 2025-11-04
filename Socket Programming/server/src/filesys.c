@@ -1091,3 +1091,21 @@ int fs_delete_directory(const char *path, int force_delete)
     return 0;
 #endif
 }
+
+int fs_rename(const char *old_path, const char *new_path)
+{
+    if (old_path == NULL || new_path == NULL)
+        return -1;
+
+#ifdef _WIN32
+    // Windows rename
+    if (MoveFileA(old_path, new_path))
+        return 0;
+    return -1;
+#else
+    // POSIX rename
+    if (rename(old_path, new_path) == 0)
+        return 0;
+    return -1;
+#endif
+}
