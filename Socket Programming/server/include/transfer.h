@@ -8,7 +8,11 @@
 #ifndef TRANSFER_H
 #define TRANSFER_H
 
-#include "session.h"
+#include "protocol.h"
+
+// Forward declaration to avoid circular include
+struct session_t;
+typedef struct session_t session_t;
 
 /**
  * @brief Transfer buffer size for file operations
@@ -23,8 +27,33 @@ typedef enum
 	TRANSFER_STATUS_OK = 0,
 	TRANSFER_STATUS_IO_ERROR = -1,
 	TRANSFER_STATUS_CONN_ERROR = -2,
-	TRANSFER_STATUS_INTERNAL_ERROR = -3
+	TRANSFER_STATUS_INTERNAL_ERROR = -3,
+	TRANSFER_STATUS_ABORTED = -4
 } transfer_status_t;
+
+/**
+ * @brief Transfer thread states
+ */
+typedef enum
+{
+	TRANSFER_THREAD_IDLE,		// No transfer thread running
+	TRANSFER_THREAD_STARTING,	// Transfer thread is starting
+	TRANSFER_THREAD_RUNNING,	// Transfer thread is running
+	TRANSFER_THREAD_COMPLETING, // Transfer thread is completing
+	TRANSFER_THREAD_ABORTED		// Transfer thread was aborted
+} transfer_thread_state_t;
+
+/**
+ * @brief Transfer parameters for async transfer thread
+ */
+typedef struct
+{
+	char filepath[1024];		// File path for transfer
+	long long offset;			// Transfer offset
+	proto_transfer_type_t type; // Transfer type (ASCII/BINARY)
+	int is_upload;				// 1 for upload, 0 for download
+	int lock_acquired;			// 1 if file lock was acquired, 0 otherwise
+} transfer_params_t;
 
 /**
  * @brief Sends a file to the client through the data connection.
@@ -91,5 +120,16 @@ transfer_status_t transfer_send_list(session_t *session, const char *dirpath);
  * @return transfer_status_t indicating success or failure reason
  */
 transfer_status_t transfer_send_nlst(session_t *session, const char *dirpath);
+
+/**
+ * @brief Transfer thread function for async file transfers
+ *
+ * This function runs in a separate thread to perform file transfers
+ * without blocking the main command processing thread.
+ *
+ * @param arg Pointer to session_t
+ * @return NULL
+ */
+void *transfer_thread_func(void *arg);
 
 #endif // TRANSFER_H

@@ -10,6 +10,7 @@
 #include "network.h"
 #include "protocol.h"
 #include "auth.h"
+#include "transfer.h"
 #include <stdint.h>
 #include <pthread.h>
 
@@ -49,7 +50,7 @@ typedef enum
  *
  * Contains all state information for a single FTP client connection.
  */
-typedef struct
+typedef struct session_t
 {
     // Connection information
     socket_t control_socket; // Control connection socket
@@ -88,6 +89,16 @@ typedef struct
     char rename_from[SESSION_MAX_PATH]; // Temporary storage for RNFR command
     long long restart_offset;           // File offset for REST command
     int rename_pending;                 // 1 if RNFR was issued, waiting for RNTO
+
+    // Transfer state
+    int transfer_in_progress;           // 1 if a data transfer is currently in progress
+    int transfer_should_abort;               // 1 if transfer should be aborted (ABOR command)
+    
+    // Async transfer thread support
+    pthread_t transfer_thread;                    // Transfer thread handle
+    transfer_thread_state_t transfer_thread_state; // Current transfer thread state
+    void *transfer_params;                        // Parameters for current transfer (opaque)
+    transfer_status_t transfer_result;            // Result of completed transfer
 
     // Thread safety
     pthread_mutex_t lock; // Mutex for thread-safe access
@@ -335,6 +346,50 @@ int session_get_rename_from(session_t *session,
 void session_clear_rename_state(session_t *session);
 
 /**
+ * @brief Sets the transfer should abort flag.
+ *
+ * @param session Pointer to session
+ */
+void session_set_transfer_should_abort(session_t *session);
+
+/**
+ * @brief Checks if transfer should be aborted.
+ *
+ * @param session Pointer to session
+ * @return 1 if transfer should be aborted, 0 otherwise
+ */
+int session_should_abort_transfer(session_t *session);
+
+/**
+ * @brief Clears the transfer should abort flag.
+ *
+ * @param session Pointer to session
+ */
+void session_clear_transfer_should_abort(session_t *session);
+
+/**
+ * @brief Sets the transfer in progress flag.
+ *
+ * @param session Pointer to session
+ */
+void session_set_transfer_in_progress(session_t *session);
+
+/**
+ * @brief Checks if transfer is currently in progress.
+ *
+ * @param session Pointer to session
+ * @return 1 if transfer is in progress, 0 otherwise
+ */
+int session_is_transfer_in_progress(session_t *session);
+
+/**
+ * @brief Clears the transfer in progress flag.
+ *
+ * @param session Pointer to session
+ */
+void session_clear_transfer_in_progress(session_t *session);
+
+/**
  * @brief Updates the last activity timestamp.
  *
  * @param session Pointer to session
@@ -374,5 +429,37 @@ int session_send_response(session_t *session, int code, const char *message);
  * @return 0 on success, -1 on error
  */
 int session_send_response_multiline(session_t *session, int code, const char *message);
+
+/**
+ * @brief Sets the transfer thread state for a session.
+ *
+ * @param session Pointer to session
+ * @param state New transfer thread state
+ */
+void session_set_transfer_thread_state(session_t *session, transfer_thread_state_t state);
+
+/**
+ * @brief Gets the current transfer thread state for a session.
+ *
+ * @param session Pointer to session
+ * @return Current transfer thread state
+ */
+transfer_thread_state_t session_get_transfer_thread_state(session_t *session);
+
+/**
+ * @brief Starts a transfer thread for asynchronous data transfer.
+ *
+ * @param session Pointer to session
+ * @param params Transfer parameters
+ * @return 0 on success, -1 on error
+ */
+int session_start_transfer_thread(session_t *session, const void *params);
+
+/**
+ * @brief Aborts the current transfer thread if running.
+ *
+ * @param session Pointer to session
+ */
+void session_abort_transfer_thread(session_t *session);
 
 #endif // SESSION_H

@@ -9,6 +9,7 @@
 #include "logger.h"
 #include "filesys.h"
 #include "utils.h"
+#include "transfer.h"
 #include <stdlib.h>
 #include <stdio.h>
 #include <string.h>
@@ -49,7 +50,6 @@ session_t *session_create(socket_t control_socket,
     session->state = SESSION_STATE_CONNECTED;
     session->authenticated = 0;
     session->permissions = AUTH_PERM_NONE;
-    
 
     // Set directory information
     strncpy(session->root_dir, root_dir, sizeof(session->root_dir) - 1);
@@ -61,7 +61,7 @@ session_t *session_create(socket_t control_socket,
         return NULL;
     }
 
-    strcpy(session->current_dir, "/"); // Start at root
+    strcpy(session->current_dir, "/");                                 // Start at root
     memset(session->user_home_dir, 0, sizeof(session->user_home_dir)); // No home dir yet
 
     // Set default transfer parameters
@@ -77,6 +77,16 @@ session_t *session_create(socket_t control_socket,
     // Initialize command state
     session->restart_offset = 0;
     session->rename_pending = 0;
+
+    // Initialize transfer state
+    session->transfer_should_abort = 0;
+    session->transfer_in_progress = 0;
+
+    // Initialize async transfer thread state
+    session->transfer_thread = 0;
+    session->transfer_thread_state = TRANSFER_THREAD_IDLE;
+    session->transfer_params = NULL;
+    session->transfer_result = TRANSFER_STATUS_OK;
 
     // Initialize timestamps
     session->connect_time = time(NULL);
@@ -107,6 +117,16 @@ void session_destroy(session_t *session)
 
     LOG_INFO("Destroying session for client %s:%u",
              session->client_ip, session->client_port);
+
+    // Wait for any ongoing transfer thread to complete
+    if (session->transfer_thread != 0)
+    {
+        LOG_INFO("Waiting for session %s:%u transfer thread to complete...",
+                 session->client_ip, session->client_port);
+        pthread_join(session->transfer_thread, NULL);
+        session->transfer_thread = 0;
+        session->transfer_thread_state = TRANSFER_THREAD_IDLE;
+    }
 
     // Close data connections
     session_close_data_connection(session);
@@ -188,16 +208,16 @@ int session_authenticate(session_t *session, const char *password)
     {
         char absolute_home[SESSION_MAX_PATH];
         const char *home_rel = session->user_home_dir;
-        
+
         // Skip leading '/' if present, as fs_join_path will add separators
         if (home_rel[0] == '/')
         {
             home_rel++;
         }
-        
+
         // Build absolute path to home directory
         if (fs_join_path(absolute_home, sizeof(absolute_home),
-                        session->root_dir, home_rel) == 0)
+                         session->root_dir, home_rel) == 0)
         {
             // Check if home directory exists
             if (fs_is_directory(absolute_home))
@@ -291,7 +311,7 @@ int session_check_path_access(session_t *session, const char *path, auth_permiss
     }
 
     size_t home_len = strlen(session->user_home_dir);
-    
+
     // Check if normalized_path starts with user_home_dir
     if (strncmp(normalized_path, session->user_home_dir, home_len) == 0)
     {
@@ -755,6 +775,82 @@ void session_clear_rename_state(session_t *session)
     pthread_mutex_unlock(&session->lock);
 }
 
+void session_set_transfer_should_abort(session_t *session)
+{
+    if (!session)
+    {
+        return;
+    }
+
+    pthread_mutex_lock(&session->lock);
+    session->transfer_should_abort = 1;
+    pthread_mutex_unlock(&session->lock);
+}
+
+int session_should_abort_transfer(session_t *session)
+{
+    if (!session)
+    {
+        return 0;
+    }
+
+    pthread_mutex_lock(&session->lock);
+    int aborted = session->transfer_should_abort;
+    pthread_mutex_unlock(&session->lock);
+
+    return aborted;
+}
+
+void session_clear_transfer_should_abort(session_t *session)
+{
+    if (!session)
+    {
+        return;
+    }
+
+    pthread_mutex_lock(&session->lock);
+    session->transfer_should_abort = 0;
+    pthread_mutex_unlock(&session->lock);
+}
+
+void session_set_transfer_in_progress(session_t *session)
+{
+    if (!session)
+    {
+        return;
+    }
+
+    pthread_mutex_lock(&session->lock);
+    session->transfer_in_progress = 1;
+    pthread_mutex_unlock(&session->lock);
+}
+
+int session_is_transfer_in_progress(session_t *session)
+{
+    if (!session)
+    {
+        return 0;
+    }
+
+    pthread_mutex_lock(&session->lock);
+    int in_progress = session->transfer_in_progress;
+    pthread_mutex_unlock(&session->lock);
+
+    return in_progress;
+}
+
+void session_clear_transfer_in_progress(session_t *session)
+{
+    if (!session)
+    {
+        return;
+    }
+
+    pthread_mutex_lock(&session->lock);
+    session->transfer_in_progress = 0;
+    pthread_mutex_unlock(&session->lock);
+}
+
 void session_update_activity(session_t *session)
 {
     if (!session)
@@ -844,6 +940,104 @@ int session_send_response_multiline(session_t *session, int code, const char *me
     LOG_DEBUG("Sent (multiline): %d-%s", code, message);
 
     return 0;
+}
+
+// Transfer thread management functions
+
+void session_set_transfer_thread_state(session_t *session, transfer_thread_state_t state)
+{
+    if (!session)
+    {
+        return;
+    }
+
+    pthread_mutex_lock(&session->lock);
+    session->transfer_thread_state = state;
+    pthread_mutex_unlock(&session->lock);
+}
+
+transfer_thread_state_t session_get_transfer_thread_state(session_t *session)
+{
+    if (!session)
+    {
+        return TRANSFER_THREAD_IDLE;
+    }
+
+    pthread_mutex_lock(&session->lock);
+    transfer_thread_state_t state = session->transfer_thread_state;
+    pthread_mutex_unlock(&session->lock);
+
+    return state;
+}
+
+int session_start_transfer_thread(session_t *session, const void *params)
+{
+    if (!session || !params)
+    {
+        return -1;
+    }
+
+    pthread_mutex_lock(&session->lock);
+
+    // Check if a transfer is already in progress
+    if (session->transfer_thread_state != TRANSFER_THREAD_IDLE)
+    {
+        pthread_mutex_unlock(&session->lock);
+        return -1;
+    }
+
+    // Copy transfer parameters
+    session->transfer_params = malloc(sizeof(transfer_params_t));
+    if (!session->transfer_params)
+    {
+        pthread_mutex_unlock(&session->lock);
+        return -1;
+    }
+    memcpy(session->transfer_params, params, sizeof(transfer_params_t));
+
+    // Set state to starting
+    session->transfer_thread_state = TRANSFER_THREAD_STARTING;
+
+    // Create transfer thread
+    int rc = pthread_create(&session->transfer_thread, NULL, transfer_thread_func, session);
+    if (rc != 0)
+    {
+        free(session->transfer_params);
+        session->transfer_params = NULL;
+        session->transfer_thread_state = TRANSFER_THREAD_IDLE;
+        pthread_mutex_unlock(&session->lock);
+        return -1;
+    }
+
+    // Detach thread so it cleans up automatically when done
+    pthread_detach(session->transfer_thread);
+
+    pthread_mutex_unlock(&session->lock);
+
+    return 0;
+}
+
+void session_abort_transfer_thread(session_t *session)
+{
+    if (!session)
+    {
+        return;
+    }
+
+    pthread_mutex_lock(&session->lock);
+
+    if (session->transfer_thread_state == TRANSFER_THREAD_RUNNING ||
+        session->transfer_thread_state == TRANSFER_THREAD_STARTING)
+    {
+        pthread_mutex_unlock(&session->lock);
+        // Set should abort flag
+        session_set_transfer_should_abort(session);
+        // State will be updated by the transfer thread when it detects abort
+    }
+    else
+    {
+        pthread_mutex_unlock(&session->lock);
+    }
 }
 
 /**

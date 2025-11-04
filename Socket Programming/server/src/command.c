@@ -288,7 +288,7 @@ int cmd_register_standard_handlers(void)
     result |= cmd_register_handler("RMD", cmd_handle_rmd, cmd_prev_handle_clear_all);
     result |= cmd_register_handler("MKD", cmd_handle_mkd, cmd_prev_handle_clear_all);
     result |= cmd_register_handler("PWD", cmd_handle_pwd, cmd_prev_handle_clear_all);
-    // result |= cmd_register_handler("ABOR", cmd_handle_abor, cmd_prev_handle_clear_all);
+    result |= cmd_register_handler("ABOR", cmd_handle_abor, cmd_prev_handle_clear_all);
 
     result |= cmd_register_handler("SYST", cmd_handle_syst, cmd_prev_handle_clear_all);
     // result |= cmd_register_handler("STAT", cmd_handle_stat, cmd_prev_handle_clear_all);

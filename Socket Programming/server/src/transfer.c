@@ -7,7 +7,9 @@
 #define _DEFAULT_SOURCE
 #include "transfer.h"
 
+#include "session.h"
 #include "filesys.h"
+#include "filelock.h"
 #include "network.h"
 #include "logger.h"
 #include "utils.h"
@@ -16,6 +18,7 @@
 #include <stdio.h>
 #include <string.h>
 #include <time.h>
+#include <pthread.h>
 
 #ifndef _WIN32
 #include <sys/stat.h>
@@ -69,6 +72,14 @@ transfer_status_t transfer_send_file(session_t *session, const char *filepath, l
 
     while (remaining > 0)
     {
+        // Check if transfer has been aborted
+        if (session_should_abort_transfer(session))
+        {
+            LOG_INFO("File transfer aborted: %s", filepath);
+            status = TRANSFER_STATUS_ABORTED;
+            break;
+        }
+
         size_t to_read = (remaining > TRANSFER_BUFFER_SIZE) ? TRANSFER_BUFFER_SIZE : (size_t)remaining;
 
         long long bytes_read = fs_read_file_chunk(filepath, buffer,
@@ -91,7 +102,8 @@ transfer_status_t transfer_send_file(session_t *session, const char *filepath, l
         if (net_send_all(session->data_socket, buffer, (size_t)bytes_read) != 0)
         {
             LOG_ERROR("Failed to send data to client");
-            status = TRANSFER_STATUS_CONN_ERROR;
+            status = session_should_abort_transfer(session) ? TRANSFER_STATUS_ABORTED
+                                                            : TRANSFER_STATUS_CONN_ERROR;
             break;
         }
 
@@ -142,13 +154,22 @@ transfer_status_t transfer_receive_file(session_t *session, const char *filepath
 
     while (1)
     {
+        // Check if transfer has been aborted
+        if (session_should_abort_transfer(session))
+        {
+            LOG_INFO("File reception aborted: %s", filepath);
+            status = TRANSFER_STATUS_ABORTED;
+            break;
+        }
+
         int bytes_received = net_receive(session->data_socket, buffer,
                                          TRANSFER_BUFFER_SIZE);
 
         if (bytes_received < 0)
         {
             LOG_ERROR("Failed to receive data from client");
-            status = TRANSFER_STATUS_CONN_ERROR;
+            status = session_should_abort_transfer(session) ? TRANSFER_STATUS_ABORTED
+                                                            : TRANSFER_STATUS_CONN_ERROR;
             break;
         }
 
@@ -234,6 +255,14 @@ transfer_status_t transfer_send_file_ascii(session_t *session, const char *filep
 
     while (remaining > 0)
     {
+        // Check if transfer has been aborted
+        if (session_should_abort_transfer(session))
+        {
+            LOG_INFO("ASCII file transfer aborted: %s", filepath);
+            status = TRANSFER_STATUS_ABORTED;
+            break;
+        }
+
         size_t to_read = (remaining > TRANSFER_BUFFER_SIZE) ? TRANSFER_BUFFER_SIZE : (size_t)remaining;
 
         long long bytes_read = fs_read_file_chunk(filepath, read_buffer,
@@ -264,7 +293,8 @@ transfer_status_t transfer_send_file_ascii(session_t *session, const char *filep
         if (net_send_all(session->data_socket, write_buffer, (size_t)converted_bytes) != 0)
         {
             LOG_ERROR("Failed to send data to client in ASCII mode");
-            status = TRANSFER_STATUS_CONN_ERROR;
+            status = session_should_abort_transfer(session) ? TRANSFER_STATUS_ABORTED
+                                                            : TRANSFER_STATUS_CONN_ERROR;
             break;
         }
 
@@ -320,13 +350,22 @@ transfer_status_t transfer_receive_file_ascii(session_t *session, const char *fi
 
     while (1)
     {
+        // Check if transfer has been aborted
+        if (session_should_abort_transfer(session))
+        {
+            LOG_INFO("ASCII file reception aborted: %s", filepath);
+            status = TRANSFER_STATUS_ABORTED;
+            break;
+        }
+
         int bytes_received = net_receive(session->data_socket, read_buffer,
                                          TRANSFER_BUFFER_SIZE);
 
         if (bytes_received < 0)
         {
             LOG_ERROR("Failed to receive data from client in ASCII mode");
-            status = TRANSFER_STATUS_CONN_ERROR;
+            status = session_should_abort_transfer(session) ? TRANSFER_STATUS_ABORTED
+                                                            : TRANSFER_STATUS_CONN_ERROR;
             break;
         }
 
@@ -393,7 +432,6 @@ transfer_status_t transfer_receive_file_ascii(session_t *session, const char *fi
 
     return status;
 }
-
 
 /**
  * @brief Format a single line of file listing (detailed view).
@@ -492,7 +530,7 @@ static int format_list_line(const fs_file_info_t *info,
     return (written >= 0 && written < (int)buffer_size) ? 0 : -1;
 }
 
-/** 
+/**
  * @brief Send a directory listing to the client.
  * @param session Pointer to the session structure.
  * @param dirpath Path to the directory to list.
@@ -516,7 +554,14 @@ static transfer_status_t send_listing(session_t *session,
     char line_buffer[1024];
 
     for (int i = 0; i < count; i++)
-    {   
+    {
+        // Check if transfer has been aborted
+        if (session_should_abort_transfer(session))
+        {
+            LOG_INFO("Directory listing aborted: %s", dirpath);
+            return TRANSFER_STATUS_ABORTED;
+        }
+
         // If filtering by name, skip non-matching entries
         if (filter_name && strcmp(file_list[i].name, filter_name) != 0)
         {
@@ -532,7 +577,8 @@ static transfer_status_t send_listing(session_t *session,
         if (net_send_all(session->data_socket, line_buffer, strlen(line_buffer)) != 0)
         {
             LOG_ERROR("Failed to send listing line");
-            return TRANSFER_STATUS_CONN_ERROR;
+            return session_should_abort_transfer(session) ? TRANSFER_STATUS_ABORTED
+                                                          : TRANSFER_STATUS_CONN_ERROR;
         }
 
         entries_sent++;
@@ -616,16 +662,152 @@ transfer_status_t transfer_send_nlst(session_t *session, const char *dirpath)
 
     for (int i = 0; i < count; i++)
     {
+        // Check if transfer should be aborted
+        if (session_should_abort_transfer(session))
+        {
+            LOG_INFO("Name list transfer aborted: %s", dirpath);
+            return TRANSFER_STATUS_ABORTED;
+        }
+
         // NLST format: just filename with CRLF
         snprintf(line_buffer, sizeof(line_buffer), "%s\r\n", file_list[i].name);
 
         if (net_send_all(session->data_socket, line_buffer, strlen(line_buffer)) != 0)
         {
             LOG_ERROR("Failed to send name list line");
-            return TRANSFER_STATUS_CONN_ERROR;
+            return session_should_abort_transfer(session) ? TRANSFER_STATUS_ABORTED
+                                                          : TRANSFER_STATUS_CONN_ERROR;
         }
     }
 
     LOG_INFO("Sent name list: %d entries", count);
     return TRANSFER_STATUS_OK;
+}
+
+/**
+ * @brief Transfer thread function for async file transfers
+ *
+ * This function runs in a separate thread to perform file transfers
+ * without blocking the main command processing thread.
+ *
+ * @param arg Pointer to session_t
+ * @return NULL
+ */
+void *transfer_thread_func(void *arg)
+{
+    session_t *session = (session_t *)arg;
+    if (!session)
+    {
+        return NULL;
+    }
+
+    // Set thread state to running
+    session_set_transfer_thread_state(session, TRANSFER_THREAD_RUNNING);
+
+    // Set transfer in progress flag
+    session_set_transfer_in_progress(session);
+
+    transfer_status_t result;
+    transfer_params_t *params = (transfer_params_t *)session->transfer_params;
+
+    LOG_INFO("Session from %s, transfer thread started: file=%s, offset=%lld, upload=%d",
+             session->client_ip, params->filepath, params->offset, params->is_upload);
+
+    // Execute transfer based on parameters
+    if (params->is_upload)
+    {
+        // Upload (STOR / APPE)
+        if (params->type == PROTO_TYPE_ASCII)
+        {
+            result = transfer_receive_file_ascii(session, params->filepath, params->offset);
+        }
+        else
+        {
+            result = transfer_receive_file(session, params->filepath, params->offset);
+        }
+    }
+    else
+    {
+        // Download (RETR)
+        if (params->type == PROTO_TYPE_ASCII)
+        {
+            result = transfer_send_file_ascii(session, params->filepath, params->offset);
+        }
+        else
+        {
+            result = transfer_send_file(session, params->filepath, params->offset);
+        }
+    }
+
+    // Close data connection
+    session_close_data_connection(session);
+
+    // Send completion response based on result
+    switch (result)
+    {
+    case TRANSFER_STATUS_OK:
+        session_send_response(session, PROTO_RESP_CLOSING_DATA, "Transfer complete");
+        break;
+
+    case TRANSFER_STATUS_ABORTED:
+        // ABOR command already sent responses, don't send additional response
+        break;
+
+    case TRANSFER_STATUS_CONN_ERROR:
+        session_send_response(session, PROTO_RESP_CONN_CLOSED, "Data connection closed; transfer aborted");
+        break;
+
+    case TRANSFER_STATUS_IO_ERROR:
+        session_send_response(session, PROTO_RESP_LOCAL_ERROR, "Failed to read/write file");
+        break;
+
+    case TRANSFER_STATUS_INTERNAL_ERROR:
+        session_send_response(session, PROTO_RESP_LOCAL_ERROR, "Internal server error during transfer");
+        break;
+
+    default:
+        break;
+    }
+
+    // Store result
+    session->transfer_result = result;
+
+    // Clear transfer flags
+    session_clear_transfer_in_progress(session);
+
+    // Release file lock if it was acquired
+    if (params->lock_acquired)
+    {
+        if (params->is_upload)
+        {
+            file_lock_release_exclusive(params->filepath);
+        }
+        else
+        {
+            file_lock_release_shared(params->filepath);
+        }
+        params->lock_acquired = 0;
+    }
+
+    // Free transfer parameters
+    if (session->transfer_params)
+    {
+        free(session->transfer_params);
+        session->transfer_params = NULL;
+    }
+
+    // Set final thread state
+    if (result == TRANSFER_STATUS_ABORTED)
+    {
+        session_set_transfer_thread_state(session, TRANSFER_THREAD_ABORTED);
+    }
+    else
+    {
+        session_set_transfer_thread_state(session, TRANSFER_THREAD_COMPLETING);
+    }
+
+    // Reset to idle after a short delay to allow any pending operations to complete
+    session_set_transfer_thread_state(session, TRANSFER_THREAD_IDLE);
+
+    return NULL;
 }

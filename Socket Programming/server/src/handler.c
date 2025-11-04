@@ -1,8 +1,8 @@
 /**
  * @file handlers.c
  * @brief Implementation of FTP command handlers
- * @version 0.1
- * @date 2025-11-03
+ * @version 0.3
+ * @date 2025-11-04
  */
 #include "command.h"
 #include "session.h"
@@ -340,6 +340,14 @@ int cmd_handle_rein(cmd_handler_context_t context, const proto_command_t *cmd)
     session->rename_pending = 0;
     memset(session->rename_from, 0, sizeof(session->rename_from));
 
+    // Clear transfer state
+    session->transfer_should_abort = 0;
+    session->transfer_in_progress = 0;
+    session->transfer_thread = 0;
+    session->transfer_thread_state = TRANSFER_THREAD_IDLE;
+    session->transfer_params = NULL;
+    session->transfer_result = TRANSFER_STATUS_OK;
+
     // Do not reset statistics on REIN
 
     pthread_mutex_unlock(&session->lock);
@@ -628,7 +636,6 @@ int cmd_handle_retr(cmd_handler_context_t context, const proto_command_t *cmd)
     int response = -1;
     int lock_acquired = 0;
     int data_connection_opened = 0;
-    transfer_status_t result = TRANSFER_STATUS_INTERNAL_ERROR;
 
     // Use do-while(0) for structured error handling
     do
@@ -690,44 +697,32 @@ int cmd_handle_retr(cmd_handler_context_t context, const proto_command_t *cmd)
             break;
         }
 
-        // Start transfer, clear restart offset
+        // Start transfer thread, clear restart offset
         session_clear_restart_offset(session);
 
-        if (session->transfer_type == PROTO_TYPE_ASCII)
-        {
-            result = transfer_send_file_ascii(session, abs_path, offset);
-        }
-        else
-        {
-            result = transfer_send_file(session, abs_path, offset);
-        }
+        // Prepare transfer parameters
+        transfer_params_t params;
+        memset(&params, 0, sizeof(params));
+        strncpy(params.filepath, abs_path, sizeof(params.filepath) - 1);
+        params.offset = offset;
+        params.type = session->transfer_type;
+        params.is_upload = 0; // Download
+        params.lock_acquired = lock_acquired; // Transfer lock ownership to thread
 
-        session_close_data_connection(session);
-        data_connection_opened = 0;
-
-        if (result == TRANSFER_STATUS_OK)
-        {
-            response = session_send_response(session, PROTO_RESP_CLOSING_DATA,
-                                             "Transfer complete");
-            break;
-        }
-
-        if (result == TRANSFER_STATUS_CONN_ERROR)
-        {
-            response = session_send_response(session, PROTO_RESP_CONN_CLOSED,
-                                             "Data connection closed; transfer aborted");
-            break;
-        }
-
-        if (result == TRANSFER_STATUS_IO_ERROR)
+        // Start async transfer thread
+        if (session_start_transfer_thread(session, &params) != 0)
         {
             response = session_send_response(session, PROTO_RESP_LOCAL_ERROR,
-                                             "Failed to read file from disk");
+                                             "Failed to start transfer");
             break;
         }
 
-        response = session_send_response(session, PROTO_RESP_LOCAL_ERROR,
-                                         "Internal error during transfer");
+        // Transfer started successfully, response will be sent by transfer thread
+        // Data connection will be closed by the transfer thread
+        // File lock will be released by the transfer thread
+        response = 0;
+        lock_acquired = 0; // Don't release lock here, transfer thread will do it
+        data_connection_opened = 0; // Don't close data connection here
     } while (0);
 
     if (data_connection_opened)
@@ -735,10 +730,6 @@ int cmd_handle_retr(cmd_handler_context_t context, const proto_command_t *cmd)
         session_close_data_connection(session);
     }
 
-    if (lock_acquired)
-    {
-        file_lock_release_shared(abs_path);
-    }
 
     return response;
 }
@@ -787,7 +778,6 @@ int cmd_handle_stor(cmd_handler_context_t context, const proto_command_t *cmd)
     int response = -1;
     int lock_acquired = 0;
     int data_connection_open = 0;
-    transfer_status_t result = TRANSFER_STATUS_INTERNAL_ERROR;
 
     // Use do-while(0) for structured error handling
     do
@@ -857,54 +847,37 @@ int cmd_handle_stor(cmd_handler_context_t context, const proto_command_t *cmd)
             break;
         }
 
-        // Start transfer, clear restart offset
+        // Start transfer thread, clear restart offset
         session_clear_restart_offset(session);
 
-        if (session->transfer_type == PROTO_TYPE_ASCII)
-        {
-            result = transfer_receive_file_ascii(session, abs_path, offset);
-        }
-        else
-        {
-            result = transfer_receive_file(session, abs_path, offset);
-        }
+        // Prepare transfer parameters
+        transfer_params_t params;
+        memset(&params, 0, sizeof(params));
+        strncpy(params.filepath, abs_path, sizeof(params.filepath) - 1);
+        params.offset = offset;
+        params.type = session->transfer_type;
+        params.is_upload = 1; // Upload
+        params.lock_acquired = lock_acquired; // Transfer lock ownership to thread
 
-        session_close_data_connection(session);
-        data_connection_open = 0;
-
-        if (result == TRANSFER_STATUS_OK)
-        {
-            response = session_send_response(session, PROTO_RESP_CLOSING_DATA,
-                                             "Transfer complete");
-            break;
-        }
-
-        if (result == TRANSFER_STATUS_CONN_ERROR)
-        {
-            response = session_send_response(session, PROTO_RESP_CONN_CLOSED,
-                                             "Data connection closed; transfer aborted");
-            break;
-        }
-
-        if (result == TRANSFER_STATUS_IO_ERROR)
+        // Start async transfer thread
+        if (session_start_transfer_thread(session, &params) != 0)
         {
             response = session_send_response(session, PROTO_RESP_LOCAL_ERROR,
-                                             "Failed to write file to disk");
+                                             "Failed to start transfer");
             break;
         }
 
-        response = session_send_response(session, PROTO_RESP_LOCAL_ERROR,
-                                         "Internal error during transfer");
+        // Transfer started successfully, response will be sent by transfer thread
+        // Data connection will be closed by the transfer thread
+        // File lock will be released by the transfer thread
+        response = 0;
+        lock_acquired = 0; // Don't release lock here, transfer thread will do it
+        data_connection_open = 0; // Don't close data connection here
     } while (0);
 
     if (data_connection_open)
     {
         session_close_data_connection(session);
-    }
-
-    if (lock_acquired)
-    {
-        file_lock_release_exclusive(abs_path);
     }
 
     return response;
@@ -952,7 +925,6 @@ int cmd_handle_appe(cmd_handler_context_t context, const proto_command_t *cmd)
     int response = -1;
     int lock_acquired = 0;
     int data_connection_open = 0;
-    transfer_status_t result = TRANSFER_STATUS_INTERNAL_ERROR;
 
     // Use do-while(0) for structured error handling
     do
@@ -998,51 +970,34 @@ int cmd_handle_appe(cmd_handler_context_t context, const proto_command_t *cmd)
             break;
         }
 
-        if (session->transfer_type == PROTO_TYPE_ASCII)
-        {
-            result = transfer_receive_file_ascii(session, abs_path, offset);
-        }
-        else
-        {
-            result = transfer_receive_file(session, abs_path, offset);
-        }
+        // Prepare transfer parameters
+        transfer_params_t params;
+        memset(&params, 0, sizeof(params));
+        strncpy(params.filepath, abs_path, sizeof(params.filepath) - 1);
+        params.offset = offset;
+        params.type = session->transfer_type;
+        params.is_upload = 1; // Upload
+        params.lock_acquired = lock_acquired; // Transfer lock ownership to thread
 
-        session_close_data_connection(session);
-        data_connection_open = 0;
-
-        if (result == TRANSFER_STATUS_OK)
-        {
-            response = session_send_response(session, PROTO_RESP_CLOSING_DATA,
-                                             "Transfer complete");
-            break;
-        }
-
-        if (result == TRANSFER_STATUS_CONN_ERROR)
-        {
-            response = session_send_response(session, PROTO_RESP_CONN_CLOSED,
-                                             "Data connection closed; transfer aborted");
-            break;
-        }
-
-        if (result == TRANSFER_STATUS_IO_ERROR)
+        // Start async transfer thread
+        if (session_start_transfer_thread(session, &params) != 0)
         {
             response = session_send_response(session, PROTO_RESP_LOCAL_ERROR,
-                                             "Failed to write file to disk");
+                                             "Failed to start transfer");
             break;
         }
 
-        response = session_send_response(session, PROTO_RESP_LOCAL_ERROR,
-                                         "Internal error during transfer");
+        // Transfer started successfully, response will be sent by transfer thread
+        // Data connection will be closed by the transfer thread
+        // File lock will be released by the transfer thread
+        response = 0;
+        lock_acquired = 0; // Don't release lock here, transfer thread will do it
+        data_connection_open = 0; // Don't close data connection here
     } while (0);
 
     if (data_connection_open)
     {
         session_close_data_connection(session);
-    }
-
-    if (lock_acquired)
-    {
-        file_lock_release_exclusive(abs_path);
     }
 
     return response;
@@ -1143,15 +1098,28 @@ int cmd_handle_list(cmd_handler_context_t context, const proto_command_t *cmd)
         return -1;
     }
 
+    // Set transfer in progress flag
+    session_set_transfer_in_progress(session);
+
     // List directory contents
-    if (transfer_send_list(session, abs_path) != TRANSFER_STATUS_OK)
+    transfer_status_t list_status = transfer_send_list(session, abs_path);
+
+    session_close_data_connection(session);
+
+    // Clear transfer flags after transfer completes
+    session_clear_transfer_should_abort(session);
+    session_clear_transfer_in_progress(session);
+
+    if (list_status == TRANSFER_STATUS_ABORTED)
     {
-        session_close_data_connection(session);
+        return 0; // ABOR already sent responses
+    }
+
+    if (list_status != TRANSFER_STATUS_OK)
+    {
         return session_send_response(session, PROTO_RESP_LOCAL_ERROR,
                                      "Failed to list directory");
     }
-
-    session_close_data_connection(session);
 
     return session_send_response(session, PROTO_RESP_CLOSING_DATA,
                                  "Directory listing completed");
@@ -1213,15 +1181,28 @@ int cmd_handle_nlst(cmd_handler_context_t context, const proto_command_t *cmd)
         return -1;
     }
 
+    // Set transfer in progress flag
+    session_set_transfer_in_progress(session);
+
     // List directory contents (name only)
-    if (transfer_send_nlst(session, abs_path) != TRANSFER_STATUS_OK)
+    transfer_status_t nlst_status = transfer_send_nlst(session, abs_path);
+
+    session_close_data_connection(session);
+
+    // Clear transfer flags after transfer completes
+    session_clear_transfer_should_abort(session);
+    session_clear_transfer_in_progress(session);
+
+    if (nlst_status == TRANSFER_STATUS_ABORTED)
     {
-        session_close_data_connection(session);
+        return 0; // ABOR already sent responses
+    }
+
+    if (nlst_status != TRANSFER_STATUS_OK)
+    {
         return session_send_response(session, PROTO_RESP_LOCAL_ERROR,
                                      "Failed to list directory");
     }
-
-    session_close_data_connection(session);
 
     return session_send_response(session, PROTO_RESP_CLOSING_DATA,
                                  "Name list completed");
@@ -1360,6 +1341,49 @@ int cmd_handle_rmd(cmd_handler_context_t context, const proto_command_t *cmd)
 
     return session_send_response(session, PROTO_RESP_FILE_ACTION_OK,
                                  "Directory removed");
+}
+
+int cmd_handle_abor(cmd_handler_context_t context, const proto_command_t *cmd)
+{
+    (void)cmd; // Unused parameter
+
+    session_t *session = (session_t *)context;
+    if (!session)
+    {
+        return -1;
+    }
+
+    transfer_thread_state_t thread_state = session_get_transfer_thread_state(session);
+    int transfer_active = (thread_state == TRANSFER_THREAD_RUNNING);
+
+    // If there's an active transfer thread, abort it
+    if (transfer_active)
+    {
+        session_abort_transfer_thread(session);
+    }
+
+    // Close any established or pending data connection
+    session_close_data_connection(session);
+
+    if (transfer_active)
+    {
+        // Inform the client that the data connection has been closed
+        int rc = session_send_response(session, PROTO_RESP_CONN_CLOSED,
+                                       "Data connection closed; transfer aborted");
+        if (rc != 0)
+        {
+            return rc;
+        }
+
+        session_clear_transfer_should_abort(session);
+        return session_send_response(session, PROTO_RESP_CLOSING_DATA,
+                                     "ABOR command successful");
+    }
+
+    // No transfer was in progress; clear the abort flag
+    session_clear_transfer_should_abort(session);
+    return session_send_response(session, PROTO_RESP_DATA_CONN_OPEN_NO_TRANSFER,
+                                 "No transfer in progress");
 }
 
 // Informational commands
