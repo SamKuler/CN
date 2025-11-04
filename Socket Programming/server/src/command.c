@@ -279,7 +279,7 @@ int cmd_register_standard_handlers(void)
     result |= cmd_register_handler("STOR", cmd_handle_stor, cmd_prev_handle_clear_rename);
     // result |= cmd_register_handler("STOU", cmd_handle_stou, cmd_prev_handle_clear_rename);
     result |= cmd_register_handler("RETR", cmd_handle_retr, cmd_prev_handle_clear_rename);
-    result |= cmd_register_handler("APPE", cmd_handle_appe, cmd_prev_handle_clear_rename);
+    result |= cmd_register_handler("APPE", cmd_handle_appe, cmd_prev_handle_clear_all);
     result |= cmd_register_handler("LIST", cmd_handle_list, cmd_prev_handle_clear_all);
     result |= cmd_register_handler("NLST", cmd_handle_nlst, cmd_prev_handle_clear_all);
     // result |= cmd_register_handler("RNFR", cmd_handle_rnfr, cmd_prev_handle_clear_all);

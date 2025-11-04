@@ -949,18 +949,6 @@ int cmd_handle_appe(cmd_handler_context_t context, const proto_command_t *cmd)
                                      "Cannot append to a directory");
     }
 
-    // Determine offset: if file exists, append to end; otherwise start from 0
-    long long offset = 0;
-    if (fs_path_exists(abs_path))
-    {
-        offset = fs_get_file_size(abs_path);
-        if (offset < 0)
-        {
-            return session_send_response(session, PROTO_RESP_FILE_UNAVAILABLE,
-                                         "Cannot read file");
-        }
-    }
-
     int response = -1;
     int lock_acquired = 0;
     int data_connection_open = 0;
@@ -985,6 +973,19 @@ int cmd_handle_appe(cmd_handler_context_t context, const proto_command_t *cmd)
             break;
         }
         lock_acquired = 1;
+
+        // Determine offset: if file exists, append to end; otherwise start from 0
+        long long offset = 0;
+        if (fs_path_exists(abs_path))
+        {
+            offset = fs_get_file_size(abs_path);
+            if (offset < 0)
+            {
+                response = session_send_response(session, PROTO_RESP_FILE_UNAVAILABLE,
+                                                 "Cannot read file");
+                break;
+            }
+        }
 
         // Inform client that transfer is starting (150 reply)
         char msg[PROTO_MAX_RESPONSE_LINE];
