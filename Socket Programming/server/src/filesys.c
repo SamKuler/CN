@@ -834,21 +834,27 @@ int fs_get_parent_directory(const char *path, char *parent, size_t parent_size)
     if (!path || !parent || parent_size == 0)
         return -1;
 
+    if (strlen(path) >= parent_size)
+        return -1;
+
     strncpy(parent, path, parent_size - 1);
     parent[parent_size - 1] = '\0';
 
     size_t len = strlen(parent);
-    if (len == 0)
-        return -1;
 
     // Remove trailing slashes
     while (len > 0 && (parent[len - 1] == '/' || parent[len - 1] == '\\'))
     {
+        // Avoid removing the root slash
+        if (len == 1 && parent[0] == '/') // Unix root
+            break;
+        if (len == 3 && parent[1] == ':' && (parent[2] == '/' || parent[2] == '\\')) // Windows drive root
+            break;
         parent[len - 1] = '\0';
         len--;
     }
 
-    // If the path is now empty, return error as there is no parent
+    // If the path is now empty, return error as there is no parent, and it's not root either
     if (len == 0)
         return -1;
 
@@ -860,15 +866,28 @@ int fs_get_parent_directory(const char *path, char *parent, size_t parent_size)
         slash = backslash;
 #endif
 
-    // No separator found, no parent directory
+    // No separator found
     if (!slash)
+    {
+#ifdef _WIN32
+        // Check Windows drive special case
+        // Handle drive letter case (e.g., C:)
+        if (len == 2 && parent[1] == ':')
+        {
+            parent[2] = '\\';
+            parent[3] = '\0';
+            return 0;
+        }
+#endif
+        // No parent directory
         return -1;
+    }
 
 #ifdef _WIN32
-    // Handle drive letter case (e.g., C:\)
+    // Windows root directory case (e.g., C:\)
     if (slash == parent + 2 && parent[1] == ':')
     {
-        slash[1] = '\0'; // Keep the drive letter and colon.
+        slash[1] = '\0';
         return 0;
     }
 #endif
