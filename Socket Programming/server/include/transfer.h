@@ -44,15 +44,26 @@ typedef enum
 } transfer_thread_state_t;
 
 /**
+ * @brief Transfer operation types
+ */
+typedef enum
+{
+	TRANSFER_OP_SEND_FILE,   // Send file (RETR)
+	TRANSFER_OP_RECV_FILE,   // Receive file (STOR/APPE)
+	TRANSFER_OP_SEND_LIST,   // Send directory listing (LIST)
+	TRANSFER_OP_SEND_NLST    // Send name list (NLST)
+} transfer_operation_t;
+
+/**
  * @brief Transfer parameters for async transfer thread
  */
 typedef struct
 {
-	char filepath[1024];		// File path for transfer
-	long long offset;			// Transfer offset
-	proto_transfer_type_t type; // Transfer type (ASCII/BINARY)
-	int is_upload;				// 1 for upload, 0 for download
-	int lock_acquired;			// 1 if file lock was acquired, 0 otherwise
+	transfer_operation_t operation; // Operation type
+	char filepath[1024];		    // File/directory path for transfer
+	long long offset;			    // Transfer offset (for file operations)
+	proto_transfer_type_t type;     // Transfer type (ASCII/BINARY)
+	int lock_acquired;			    // 1 if file lock was acquired, 0 otherwise
 } transfer_params_t;
 
 /**

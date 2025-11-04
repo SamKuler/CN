@@ -703,10 +703,10 @@ int cmd_handle_retr(cmd_handler_context_t context, const proto_command_t *cmd)
         // Prepare transfer parameters
         transfer_params_t params;
         memset(&params, 0, sizeof(params));
+        params.operation = TRANSFER_OP_SEND_FILE;
         strncpy(params.filepath, abs_path, sizeof(params.filepath) - 1);
         params.offset = offset;
         params.type = session->transfer_type;
-        params.is_upload = 0; // Download
         params.lock_acquired = lock_acquired; // Transfer lock ownership to thread
 
         // Start async transfer thread
@@ -730,6 +730,10 @@ int cmd_handle_retr(cmd_handler_context_t context, const proto_command_t *cmd)
         session_close_data_connection(session);
     }
 
+    if (lock_acquired)
+    {
+        file_lock_release_shared(abs_path);
+    }
 
     return response;
 }
@@ -853,10 +857,10 @@ int cmd_handle_stor(cmd_handler_context_t context, const proto_command_t *cmd)
         // Prepare transfer parameters
         transfer_params_t params;
         memset(&params, 0, sizeof(params));
+        params.operation = TRANSFER_OP_RECV_FILE;
         strncpy(params.filepath, abs_path, sizeof(params.filepath) - 1);
         params.offset = offset;
         params.type = session->transfer_type;
-        params.is_upload = 1; // Upload
         params.lock_acquired = lock_acquired; // Transfer lock ownership to thread
 
         // Start async transfer thread
@@ -878,6 +882,11 @@ int cmd_handle_stor(cmd_handler_context_t context, const proto_command_t *cmd)
     if (data_connection_open)
     {
         session_close_data_connection(session);
+    }
+
+    if (lock_acquired)
+    {
+        file_lock_release_exclusive(abs_path);
     }
 
     return response;
@@ -973,10 +982,10 @@ int cmd_handle_appe(cmd_handler_context_t context, const proto_command_t *cmd)
         // Prepare transfer parameters
         transfer_params_t params;
         memset(&params, 0, sizeof(params));
+        params.operation = TRANSFER_OP_RECV_FILE;
         strncpy(params.filepath, abs_path, sizeof(params.filepath) - 1);
         params.offset = offset;
         params.type = session->transfer_type;
-        params.is_upload = 1; // Upload
         params.lock_acquired = lock_acquired; // Transfer lock ownership to thread
 
         // Start async transfer thread
@@ -998,6 +1007,11 @@ int cmd_handle_appe(cmd_handler_context_t context, const proto_command_t *cmd)
     if (data_connection_open)
     {
         session_close_data_connection(session);
+    }
+
+    if (lock_acquired)
+    {
+        file_lock_release_exclusive(abs_path);
     }
 
     return response;
@@ -1083,46 +1097,58 @@ int cmd_handle_list(cmd_handler_context_t context, const proto_command_t *cmd)
                                      "Path is not a directory");
     }
 
-    // Open data connection
-    if (session_open_data_connection(session, 10000) != 0)
-    {
-        return session_send_response(session, PROTO_RESP_CANT_OPEN_DATA,
-                                     "Can't open data connection");
-    }
+    int response = -1;
+    int data_connection_opened = 0;
 
-    // Inform client that transfer is starting
-    if (session_send_response(session, PROTO_RESP_FILE_STATUS_OK,
-                              "Opening data connection for directory listing") != 0)
+    // Use do-while(0) for structured error handling
+    do
+    {
+        // Open data connection
+        if (session_open_data_connection(session, 10000) != 0)
+        {
+            response = session_send_response(session, PROTO_RESP_CANT_OPEN_DATA,
+                                             "Can't open data connection");
+            break;
+        }
+        data_connection_opened = 1;
+
+        // Inform client that transfer is starting
+        if (session_send_response(session, PROTO_RESP_FILE_STATUS_OK,
+                                  "Opening data connection for directory listing") != 0)
+        {
+            response = -1;
+            break;
+        }
+
+        // Prepare transfer parameters
+        transfer_params_t params;
+        memset(&params, 0, sizeof(params));
+        params.operation = TRANSFER_OP_SEND_LIST;
+        strncpy(params.filepath, abs_path, sizeof(params.filepath) - 1);
+        params.offset = 0;
+        params.type = session->transfer_type;
+        params.lock_acquired = 0; // LIST doesn't need file locks
+
+        // Start async transfer thread
+        if (session_start_transfer_thread(session, &params) != 0)
+        {
+            response = session_send_response(session, PROTO_RESP_LOCAL_ERROR,
+                                             "Failed to start transfer");
+            break;
+        }
+
+        // Transfer started successfully, response will be sent by transfer thread
+        // Data connection will be closed by the transfer thread
+        response = 0;
+        data_connection_opened = 0; // Don't close data connection here
+    } while (0);
+
+    if (data_connection_opened)
     {
         session_close_data_connection(session);
-        return -1;
     }
 
-    // Set transfer in progress flag
-    session_set_transfer_in_progress(session);
-
-    // List directory contents
-    transfer_status_t list_status = transfer_send_list(session, abs_path);
-
-    session_close_data_connection(session);
-
-    // Clear transfer flags after transfer completes
-    session_clear_transfer_should_abort(session);
-    session_clear_transfer_in_progress(session);
-
-    if (list_status == TRANSFER_STATUS_ABORTED)
-    {
-        return 0; // ABOR already sent responses
-    }
-
-    if (list_status != TRANSFER_STATUS_OK)
-    {
-        return session_send_response(session, PROTO_RESP_LOCAL_ERROR,
-                                     "Failed to list directory");
-    }
-
-    return session_send_response(session, PROTO_RESP_CLOSING_DATA,
-                                 "Directory listing completed");
+    return response;
 }
 
 int cmd_handle_nlst(cmd_handler_context_t context, const proto_command_t *cmd)
@@ -1166,46 +1192,58 @@ int cmd_handle_nlst(cmd_handler_context_t context, const proto_command_t *cmd)
                                      "Path is not a directory");
     }
 
-    // Open data connection
-    if (session_open_data_connection(session, 10000) != 0)
-    {
-        return session_send_response(session, PROTO_RESP_CANT_OPEN_DATA,
-                                     "Can't open data connection");
-    }
+    int response = -1;
+    int data_connection_opened = 0;
 
-    // Inform client that transfer is starting
-    if (session_send_response(session, PROTO_RESP_FILE_STATUS_OK,
-                              "Opening data connection for name list") != 0)
+    // Use do-while(0) for structured error handling
+    do
+    {
+        // Open data connection
+        if (session_open_data_connection(session, 10000) != 0)
+        {
+            response = session_send_response(session, PROTO_RESP_CANT_OPEN_DATA,
+                                             "Can't open data connection");
+            break;
+        }
+        data_connection_opened = 1;
+
+        // Inform client that transfer is starting
+        if (session_send_response(session, PROTO_RESP_FILE_STATUS_OK,
+                                  "Opening data connection for name list") != 0)
+        {
+            response = -1;
+            break;
+        }
+
+        // Prepare transfer parameters
+        transfer_params_t params;
+        memset(&params, 0, sizeof(params));
+        params.operation = TRANSFER_OP_SEND_NLST;
+        strncpy(params.filepath, abs_path, sizeof(params.filepath) - 1);
+        params.offset = 0;
+        params.type = session->transfer_type;
+        params.lock_acquired = 0; // NLST doesn't need file locks
+
+        // Start async transfer thread
+        if (session_start_transfer_thread(session, &params) != 0)
+        {
+            response = session_send_response(session, PROTO_RESP_LOCAL_ERROR,
+                                             "Failed to start transfer");
+            break;
+        }
+
+        // Transfer started successfully, response will be sent by transfer thread
+        // Data connection will be closed by the transfer thread
+        response = 0;
+        data_connection_opened = 0; // Don't close data connection here
+    } while (0);
+
+    if (data_connection_opened)
     {
         session_close_data_connection(session);
-        return -1;
     }
 
-    // Set transfer in progress flag
-    session_set_transfer_in_progress(session);
-
-    // List directory contents (name only)
-    transfer_status_t nlst_status = transfer_send_nlst(session, abs_path);
-
-    session_close_data_connection(session);
-
-    // Clear transfer flags after transfer completes
-    session_clear_transfer_should_abort(session);
-    session_clear_transfer_in_progress(session);
-
-    if (nlst_status == TRANSFER_STATUS_ABORTED)
-    {
-        return 0; // ABOR already sent responses
-    }
-
-    if (nlst_status != TRANSFER_STATUS_OK)
-    {
-        return session_send_response(session, PROTO_RESP_LOCAL_ERROR,
-                                     "Failed to list directory");
-    }
-
-    return session_send_response(session, PROTO_RESP_CLOSING_DATA,
-                                 "Name list completed");
+    return response;
 }
 
 int cmd_handle_pwd(cmd_handler_context_t context, const proto_command_t *cmd)
@@ -1354,34 +1392,29 @@ int cmd_handle_abor(cmd_handler_context_t context, const proto_command_t *cmd)
     }
 
     transfer_thread_state_t thread_state = session_get_transfer_thread_state(session);
-    int transfer_active = (thread_state == TRANSFER_THREAD_RUNNING);
+    int transfer_thread_active = (thread_state == TRANSFER_THREAD_RUNNING);
 
-    // If there's an active transfer thread, abort it
-    if (transfer_active)
+    // Set abort flag first, before closing connection
+    // This allows transfer functions to detect abort before getting network errors
+    if (transfer_thread_active)
     {
-        session_abort_transfer_thread(session);
+        session_set_transfer_should_abort(session);
     }
 
     // Close any established or pending data connection
+    // Do this after setting abort flag so transfer can detect abort first
     session_close_data_connection(session);
 
-    if (transfer_active)
+    if (transfer_thread_active)
     {
         // Inform the client that the data connection has been closed
-        int rc = session_send_response(session, PROTO_RESP_CONN_CLOSED,
+        // The transfer thread will send the final 226 response
+        // Don't clear abort flag yet - transfer thread will do it
+        return session_send_response(session, PROTO_RESP_CONN_CLOSED,
                                        "Data connection closed; transfer aborted");
-        if (rc != 0)
-        {
-            return rc;
-        }
-
-        session_clear_transfer_should_abort(session);
-        return session_send_response(session, PROTO_RESP_CLOSING_DATA,
-                                     "ABOR command successful");
     }
 
-    // No transfer was in progress; clear the abort flag
-    session_clear_transfer_should_abort(session);
+    // No transfer was in progress
     return session_send_response(session, PROTO_RESP_DATA_CONN_OPEN_NO_TRANSFER,
                                  "No transfer in progress");
 }

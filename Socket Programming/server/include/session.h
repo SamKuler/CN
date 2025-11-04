@@ -455,11 +455,4 @@ transfer_thread_state_t session_get_transfer_thread_state(session_t *session);
  */
 int session_start_transfer_thread(session_t *session, const void *params);
 
-/**
- * @brief Aborts the current transfer thread if running.
- *
- * @param session Pointer to session
- */
-void session_abort_transfer_thread(session_t *session);
-
 #endif // SESSION_H

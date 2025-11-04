@@ -710,24 +710,13 @@ void *transfer_thread_func(void *arg)
     transfer_status_t result;
     transfer_params_t *params = (transfer_params_t *)session->transfer_params;
 
-    LOG_INFO("Session from %s, transfer thread started: file=%s, offset=%lld, upload=%d",
-             session->client_ip, params->filepath, params->offset, params->is_upload);
+    LOG_INFO("Session from %s, transfer thread started: operation=%d, path=%s, offset=%lld",
+             session->client_ip, params->operation, params->filepath, params->offset);
 
-    // Execute transfer based on parameters
-    if (params->is_upload)
+    // Execute transfer based on operation type
+    switch (params->operation)
     {
-        // Upload (STOR / APPE)
-        if (params->type == PROTO_TYPE_ASCII)
-        {
-            result = transfer_receive_file_ascii(session, params->filepath, params->offset);
-        }
-        else
-        {
-            result = transfer_receive_file(session, params->filepath, params->offset);
-        }
-    }
-    else
-    {
+    case TRANSFER_OP_SEND_FILE:
         // Download (RETR)
         if (params->type == PROTO_TYPE_ASCII)
         {
@@ -737,6 +726,34 @@ void *transfer_thread_func(void *arg)
         {
             result = transfer_send_file(session, params->filepath, params->offset);
         }
+        break;
+
+    case TRANSFER_OP_RECV_FILE:
+        // Upload (STOR / APPE)
+        if (params->type == PROTO_TYPE_ASCII)
+        {
+            result = transfer_receive_file_ascii(session, params->filepath, params->offset);
+        }
+        else
+        {
+            result = transfer_receive_file(session, params->filepath, params->offset);
+        }
+        break;
+
+    case TRANSFER_OP_SEND_LIST:
+        // Directory listing (LIST)
+        result = transfer_send_list(session, params->filepath);
+        break;
+
+    case TRANSFER_OP_SEND_NLST:
+        // Name listing (NLST)
+        result = transfer_send_nlst(session, params->filepath);
+        break;
+
+    default:
+        LOG_ERROR("Unknown transfer operation: %d", params->operation);
+        result = TRANSFER_STATUS_INTERNAL_ERROR;
+        break;
     }
 
     // Close data connection
@@ -750,7 +767,11 @@ void *transfer_thread_func(void *arg)
         break;
 
     case TRANSFER_STATUS_ABORTED:
-        // ABOR command already sent responses, don't send additional response
+        // Send the final 226 response for ABOR command sequence
+        // ABOR command handler already sent 426 response
+        session_send_response(session, PROTO_RESP_CLOSING_DATA, "ABOR command successful");
+        // Clear abort flag after sending response
+        session_clear_transfer_should_abort(session);
         break;
 
     case TRANSFER_STATUS_CONN_ERROR:
@@ -778,14 +799,16 @@ void *transfer_thread_func(void *arg)
     // Release file lock if it was acquired
     if (params->lock_acquired)
     {
-        if (params->is_upload)
+        // Determine lock type based on operation
+        if (params->operation == TRANSFER_OP_RECV_FILE)
         {
             file_lock_release_exclusive(params->filepath);
         }
-        else
+        else if (params->operation == TRANSFER_OP_SEND_FILE)
         {
             file_lock_release_shared(params->filepath);
         }
+        // LIST/NLST operations don't acquire locks
         params->lock_acquired = 0;
     }
 

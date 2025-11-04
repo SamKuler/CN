@@ -1017,29 +1017,6 @@ int session_start_transfer_thread(session_t *session, const void *params)
     return 0;
 }
 
-void session_abort_transfer_thread(session_t *session)
-{
-    if (!session)
-    {
-        return;
-    }
-
-    pthread_mutex_lock(&session->lock);
-
-    if (session->transfer_thread_state == TRANSFER_THREAD_RUNNING ||
-        session->transfer_thread_state == TRANSFER_THREAD_STARTING)
-    {
-        pthread_mutex_unlock(&session->lock);
-        // Set should abort flag
-        session_set_transfer_should_abort(session);
-        // State will be updated by the transfer thread when it detects abort
-    }
-    else
-    {
-        pthread_mutex_unlock(&session->lock);
-    }
-}
-
 /**
  * @brief Normalizes and validates a path within the FTP virtual filesystem.
  *
