@@ -297,7 +297,7 @@ int session_set_restart_offset(session_t *session, long long offset);
  * @param session Pointer to session
  * @return The current restart offset, then resets it to 0
  */
-long long session_pop_restart_offset(session_t *session);
+long long session_get_restart_offset(session_t *session);
 
 /**
  * @brief Clears any pending restart offset without using it.
@@ -323,7 +323,7 @@ int session_set_rename_from(session_t *session, const char *path);
  * @param buffer_size Size of path buffer
  * @return 0 on success, -1 if no rename is pending
  */
-int session_pop_rename_from(session_t *session,
+int session_get_rename_from(session_t *session,
                             char *path,
                             size_t buffer_size);
 

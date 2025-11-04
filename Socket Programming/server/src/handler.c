@@ -622,7 +622,7 @@ int cmd_handle_retr(cmd_handler_context_t context, const proto_command_t *cmd)
     }
 
     // Get restart offset (for REST + RETR)
-    long long offset = session_pop_restart_offset(session);
+    long long offset = session_get_restart_offset(session);
 
     // Error handling variables
     int response = -1;
@@ -689,6 +689,9 @@ int cmd_handle_retr(cmd_handler_context_t context, const proto_command_t *cmd)
             response = -1;
             break;
         }
+
+        // Start transfer, clear restart offset
+        session_clear_restart_offset(session);
 
         if (session->transfer_type == PROTO_TYPE_ASCII)
         {
@@ -779,7 +782,7 @@ int cmd_handle_stor(cmd_handler_context_t context, const proto_command_t *cmd)
     }
 
     // Get restart offset (for REST + STOR)
-    long long offset = session_pop_restart_offset(session);
+    long long offset = session_get_restart_offset(session);
 
     int response = -1;
     int lock_acquired = 0;
@@ -853,6 +856,9 @@ int cmd_handle_stor(cmd_handler_context_t context, const proto_command_t *cmd)
             response = -1;
             break;
         }
+
+        // Start transfer, clear restart offset
+        session_clear_restart_offset(session);
 
         if (session->transfer_type == PROTO_TYPE_ASCII)
         {

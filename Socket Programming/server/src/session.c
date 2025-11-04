@@ -671,7 +671,7 @@ int session_set_restart_offset(session_t *session, long long offset)
     return 0;
 }
 
-long long session_pop_restart_offset(session_t *session)
+long long session_get_restart_offset(session_t *session)
 {
     if (!session)
     {
@@ -680,7 +680,6 @@ long long session_pop_restart_offset(session_t *session)
 
     pthread_mutex_lock(&session->lock);
     long long offset = session->restart_offset;
-    session->restart_offset = 0;
     pthread_mutex_unlock(&session->lock);
 
     return offset;
@@ -718,7 +717,7 @@ int session_set_rename_from(session_t *session, const char *path)
     return 0;
 }
 
-int session_pop_rename_from(session_t *session,
+int session_get_rename_from(session_t *session,
                             char *path,
                             size_t buffer_size)
 {
@@ -737,9 +736,6 @@ int session_pop_rename_from(session_t *session,
 
     strncpy(path, session->rename_from, buffer_size - 1);
     path[buffer_size - 1] = '\0';
-
-    session->rename_pending = 0;
-    memset(session->rename_from, 0, sizeof(session->rename_from));
 
     pthread_mutex_unlock(&session->lock);
 
