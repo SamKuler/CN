@@ -1,5 +1,6 @@
 #include "utils.h"
 #include <ctype.h>
+#include <stdio.h>
 
 void get_timestamp(char *buffer, size_t size)
 {
@@ -95,4 +96,28 @@ long long lf_to_crlf(const char *input_buffer, long long input_len, char *output
         }
     }
     return write_idx;
+}
+
+int string_to_hex(const char *input, char *output_buffer, size_t buffer_size)
+{
+    if (!input || !output_buffer || buffer_size == 0)
+        return -1;
+
+    size_t input_len = strlen(input);
+    size_t hex_len = 0;
+
+    for (size_t i = 0; i < input_len && hex_len < buffer_size - 3; i++)
+    {
+        int written = snprintf(output_buffer + hex_len, buffer_size - hex_len, "%02X ", (unsigned char)input[i]);
+        if (written < 0 || (size_t)written >= buffer_size - hex_len)
+            return -1;
+        hex_len += written;
+    }
+
+    if (hex_len > 0 && output_buffer[hex_len - 1] == ' ')
+        output_buffer[hex_len - 1] = '\0'; // Remove trailing space
+    else
+        output_buffer[hex_len] = '\0';
+
+    return 0;
 }

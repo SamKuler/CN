@@ -48,4 +48,17 @@ long long crlf_to_lf(const char *input_buffer, long long input_len, char *output
  */
 long long lf_to_crlf(const char *input_buffer, long long input_len, char *output_buffer, long long output_size);
 
+/**
+ * @brief Converts a string to its hexadecimal representation.
+ *
+ * Each byte is represented as two uppercase hex digits followed by a space.
+ * The trailing space is removed from the output.
+ *
+ * @param input The input string to convert.
+ * @param output_buffer The output buffer to store the hex string.
+ * @param buffer_size The size of the output buffer.
+ * @return 0 on success, -1 if buffer is too small.
+ */
+int string_to_hex(const char *input, char *output_buffer, size_t buffer_size);
+
 #endif
