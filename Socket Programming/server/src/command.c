@@ -6,10 +6,11 @@
  *
  */
 #include "command.h"
+#include "logger.h"
 #include "utils.h"
-#include <string.h>
-#include <ctype.h>
 #include <stdio.h>
+#include <stdlib.h>
+#include <string.h>
 
 /**
  * @brief Structure representing a registered command handler.
@@ -137,6 +138,8 @@ int cmd_dispatch(cmd_handler_context_t context, const proto_command_t *cmd)
     if (!cmd)
         return -1;
 
+    LOG_DEBUG("Dispatching command: %s", cmd->command);
+
     // Find matching handler
     for (int i = 0; i < CMD_MAX_HANDLERS; i++)
     {
@@ -171,6 +174,8 @@ int cmd_is_registered(const char *command)
     cmd_upper[PROTO_MAX_CMD_NAME - 1] = '\0';
     to_uppercase(cmd_upper);
 
+    LOG_DEBUG("Checking registration for command: %s", cmd_upper);
+
     // Check if handler exists
     for (int i = 0; i < CMD_MAX_HANDLERS; i++)
     {
@@ -194,6 +199,38 @@ int cmd_get_handler_count(void)
     }
 
     return count;
+}
+
+const char *cmd_get_all_registered_commands(void)
+{
+    static char command_list[CMD_MAX_HANDLERS * (PROTO_MAX_CMD_NAME + 4)]; // +4 for comma, space, and line breaks
+    command_list[0] = '\0';
+
+    if (!g_initialized)
+        return command_list;
+
+    int total_cmds = 0;
+
+    for (int i = 0; i < CMD_MAX_HANDLERS; i++)
+    {
+        if (g_handlers[i].in_use)
+        {
+            total_cmds++;   
+            if (total_cmds % 5 != 1)
+            {
+                strncat(command_list, ", ", sizeof(command_list) - strlen(command_list) - 1);
+            }
+            strncat(command_list, g_handlers[i].command, sizeof(command_list) - strlen(command_list) - 1);
+            if (total_cmds % 5 == 0)
+            {
+                // Add line break every 5 commands for readability
+                strncat(command_list, ",\n", sizeof(command_list) - strlen(command_list) - 1);
+            }
+        }
+    }
+    command_list[sizeof(command_list) - 1] = '\0';
+
+    return command_list;
 }
 
 // Forward declarations for previous command handlers

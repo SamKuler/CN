@@ -217,6 +217,7 @@ int server_init(const server_config_t *config)
     }
 
     LOG_INFO("Registered %d command handlers", cmd_get_handler_count());
+    LOG_DEBUG("All registered commands:\n%s", cmd_get_all_registered_commands());
 
     // Create listening socket
     g_listening_socket = net_create_listening_socket(g_config.address_family,

@@ -108,4 +108,11 @@ int cmd_get_handler_count(void);
  */
 int cmd_register_standard_handlers(void);
 
+/**
+ * @brief Gets a comma-separated list of all registered commands.
+ *
+ * @return A string containing all registered command names.
+ */
+const char *cmd_get_all_registered_commands(void);
+
 #endif
