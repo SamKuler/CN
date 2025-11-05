@@ -157,6 +157,7 @@ int cmd_dispatch(cmd_handler_context_t context, const proto_command_t *cmd)
     }
 
     // No handler found
+    LOG_DEBUG("No handler found for command: %s", cmd->command);
     return -1;
 }
 

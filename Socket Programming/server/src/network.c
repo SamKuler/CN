@@ -21,6 +21,7 @@
 #include <sys/select.h>
 #include <sys/types.h>
 #include <sys/socket.h>
+#include <sys/ioctl.h>
 #include <arpa/inet.h>
 #include <netinet/tcp.h>
 #include <netdb.h>
@@ -627,4 +628,81 @@ const char *net_get_error_string(int error_code)
 #endif
 
     return buffer;
+}
+
+int net_has_urgent_data(socket_t sock)
+{
+#ifdef _WIN32
+    // Windows doesn't have sockatmark, use select with exception set
+    fd_set except_fds;
+    struct timeval tv = {0, 0};  // No wait
+    
+    FD_ZERO(&except_fds);
+    FD_SET(sock, &except_fds);
+    
+    int result = select((int)sock + 1, NULL, NULL, &except_fds, &tv);
+    if (result < 0)
+    {
+        return -1;  // Error
+    }
+    return FD_ISSET(sock, &except_fds) ? 1 : 0;
+#else
+    // POSIX: Use sockatmark to check if we're at the urgent data mark
+    int atmark = sockatmark(sock);
+    if (atmark < 0)
+    {
+        return -1;  // Error
+    }
+    
+    // Also check for exception condition with select
+    fd_set except_fds;
+    struct timeval tv = {0, 0};  // No wait
+    
+    FD_ZERO(&except_fds);
+    FD_SET(sock, &except_fds);
+    
+    int result = select((int)sock + 1, NULL, NULL, &except_fds, &tv);
+    if (result < 0)
+    {
+        return -1;  // Error
+    }
+    
+    // Return true if either at mark or exception is set
+    return (atmark > 0 || FD_ISSET(sock, &except_fds)) ? 1 : 0;
+#endif
+}
+
+int net_receive_urgent(socket_t sock, void *buffer, size_t buffer_size)
+{
+    if (!buffer || buffer_size == 0)
+    {
+        return -1;
+    }
+
+#ifdef _WIN32
+    int result = recv(sock, (char *)buffer, (int)buffer_size, MSG_OOB);
+    return result;
+#else
+    ssize_t result = recv(sock, buffer, buffer_size, MSG_OOB);
+    return (int)result;
+#endif
+}
+
+int net_set_oob_inline(socket_t sock, int enable)
+{
+    int opt = enable ? 1 : 0;
+    
+#ifdef _WIN32
+    if (setsockopt(sock, SOL_SOCKET, SO_OOBINLINE, (const char *)&opt, sizeof(opt)) < 0)
+    {
+        return -1;
+    }
+#else
+    if (setsockopt(sock, SOL_SOCKET, SO_OOBINLINE, &opt, sizeof(opt)) < 0)
+    {
+        return -1;
+    }
+#endif
+    
+    return 0;
 }

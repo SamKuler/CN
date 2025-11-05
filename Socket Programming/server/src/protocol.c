@@ -29,6 +29,67 @@ int proto_parse_command(const char *line, proto_command_t *cmd)
     strncpy(buffer, line, sizeof(buffer) - 1);
     buffer[sizeof(buffer) - 1] = '\0';
 
+    // Filter Telnet IAC sequences
+    char filtered_buffer[PROTO_MAX_CMD_ARG + PROTO_MAX_CMD_NAME + 10];
+    size_t write_pos = 0;
+    for (size_t i = 0; i < line_len && write_pos < sizeof(filtered_buffer) - 1; i++)
+    {
+        unsigned char c = (unsigned char)buffer[i];
+        if (c == 0xFF) {  // IAC (Interpret As Command)
+            if (i + 1 < line_len)
+            {
+                unsigned char next = (unsigned char)buffer[i + 1];
+                if (next == 0xFF)
+                {
+                    // Escaped IAC: IAC IAC → 0xFF
+                    filtered_buffer[write_pos++] = 0xFF;
+                    i++;  // Skip the second IAC
+                }
+                else if (next >= 0xF0)
+                {
+                    // Telnet command (IP=0xF4, BRK=0xF3, DM=0xF2, NOP=0xF1, etc.)
+                    i++;  // Skip the command byte
+                }
+                else if (next >= 0xFB && next <= 0xFE)
+                {
+                    // Negotiation command (WILL=0xFB, WONT=0xFC, DO=0xFD, DONT=0xFE)
+                    if (i + 2 < line_len)
+                    {
+                        i += 2;  // Skip command and option bytes
+                    }
+                    else
+                    {
+                        i++;  // Skip command byte if incomplete
+                    }
+                }
+                else
+                {
+                    // Unknown IAC sequence, skip IAC and next byte
+                    if (i + 1 < line_len)
+                    {
+                        i += 2;
+                    }
+                    else
+                    {
+                        i++;
+                    }
+                }
+            }
+            // If no next byte, skip this IAC
+        }
+        else if (c == 0xF4) {  // IP (Interrupt Process) - may appear without IAC in urgent data
+            // Skip IP byte
+        }
+        else
+        {
+            filtered_buffer[write_pos++] = c;
+        }
+    }
+    filtered_buffer[write_pos] = '\0';
+
+    // Use filtered buffer for further processing
+    strcpy(buffer, filtered_buffer);
+
     // Remove CRLF if present
     char *crlf = strstr(buffer, "\r\n");
     if (crlf)

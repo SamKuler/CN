@@ -270,6 +270,39 @@ int net_wait_readable(socket_t sock, int timeout_ms);
 int net_wait_writable(socket_t sock, int timeout_ms);
 
 /**
+ * @brief Checks if there is urgent (out-of-band) data available on the socket.
+ *
+ * This is used to detect TCP urgent data, which is how ABOR commands are
+ * typically sent according to RFC 959.
+ *
+ * @param sock The socket descriptor.
+ * @return 1 if urgent data is available, 0 if not, -1 on error.
+ */
+int net_has_urgent_data(socket_t sock);
+
+/**
+ * @brief Receives urgent (out-of-band) data from a socket.
+ *
+ * @param sock The socket descriptor.
+ * @param buffer The buffer to store the urgent data.
+ * @param buffer_size The maximum number of bytes to receive.
+ * @return The number of bytes received, 0 if no urgent data, -1 on error.
+ */
+int net_receive_urgent(socket_t sock, void *buffer, size_t buffer_size);
+
+/**
+ * @brief Sets the SO_OOBINLINE option on a socket.
+ *
+ * When enabled, urgent data is placed in the normal data stream instead of
+ * being retrieved separately with MSG_OOB.
+ *
+ * @param sock The socket descriptor.
+ * @param enable 1 to enable OOB inline, 0 to disable.
+ * @return 0 on success, -1 on error.
+ */
+int net_set_oob_inline(socket_t sock, int enable);
+
+/**
  * @brief Gets the last socket error code.
  *
  * @return The error code from the last socket operation.

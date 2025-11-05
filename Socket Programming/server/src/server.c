@@ -54,6 +54,12 @@ static void *client_thread(void *arg)
 
     LOG_INFO("Client thread started for %s:%u", session->client_ip, session->client_port);
 
+    // Configure socket to receive urgent data inline
+    if (net_set_oob_inline(session->control_socket, 1) != 0)
+    {
+        LOG_WARN("Failed to set OOB inline mode for client %s:%u", session->client_ip, session->client_port);
+    }
+
     // Send welcome message (220)
     if (session_send_response(session, PROTO_RESP_SERVICE_READY, "FTP Server Ready") != 0)
     {
@@ -74,6 +80,11 @@ static void *client_thread(void *arg)
     // Main command loop
     while (!session->should_quit && g_server_running)
     {
+        int has_urgent = net_has_urgent_data(session->control_socket);
+        if (has_urgent > 0)
+        {
+            LOG_INFO("Urgent data detected - priority command expected (likely ABOR)");
+        }
         // Receive command from client
         int bytes_received = net_receive_line(session->control_socket,
                                               command_buffer,
@@ -109,11 +120,22 @@ static void *client_thread(void *arg)
         // Increment command counter
         session->commands_received++;
 
-        LOG_INFO("Client %s:%u: %s %s",
-                 session->client_ip, session->client_port,
-                 cmd.command, cmd.has_argument ? cmd.argument : "");
+        // Special logging for urgent commands
+        if (has_urgent > 0)
+        {
+            LOG_INFO("Client %s:%u: [URGENT] %s %s",
+                     session->client_ip, session->client_port,
+                     cmd.command, cmd.has_argument ? cmd.argument : "");
+        }
+        else
+        {
+            LOG_INFO("Client %s:%u: %s %s",
+                     session->client_ip, session->client_port,
+                     cmd.command, cmd.has_argument ? cmd.argument : "");
+        }
 
         // Dispatch command to handler
+        // ABOR will be dispatched through the normal command handler mechanism
         if (cmd_dispatch((cmd_handler_context_t)session, &cmd) != 0)
         {
             // Command not recognized or handler failed
