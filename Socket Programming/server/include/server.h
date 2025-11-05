@@ -19,6 +19,7 @@ typedef struct
 {
     uint16_t port;                    // Port to listen on
     char root_dir[1024];              // Root directory for FTP
+    char bind_address[64];            // Address to bind to (e.g., "0.0.0.0" or "127.0.0.1")
     int max_backlog;                  // Maximum pending connections
     int command_timeout_ms;           // Command timeout in milliseconds
     int max_connections;              // Maximum concurrent connections (-1 for unlimited)

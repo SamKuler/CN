@@ -58,7 +58,7 @@ void net_cleanup(void)
     g_initialized = 0;
 }
 
-socket_t net_create_listening_socket(net_addr_family_t family, uint16_t port, int backlog)
+socket_t net_create_listening_socket(net_addr_family_t family, const char *bind_address, uint16_t port, int backlog)
 {
     struct addrinfo hints, *res, *p;
     socket_t listening_socket = INVALID_SOCKET_T;
@@ -86,7 +86,7 @@ socket_t net_create_listening_socket(net_addr_family_t family, uint16_t port, in
         break;
     }
 
-    if (getaddrinfo(NULL, port_str, &hints, &res) != 0)
+    if (getaddrinfo(bind_address, port_str, &hints, &res) != 0)
     {
         return INVALID_SOCKET_T;
     }
@@ -146,7 +146,7 @@ socket_t net_create_listening_socket(net_addr_family_t family, uint16_t port, in
     return listening_socket;
 }
 
-socket_t net_create_listening_socket_range(net_addr_family_t family, uint16_t port_min,
+socket_t net_create_listening_socket_range(net_addr_family_t family, const char *bind_address, uint16_t port_min,
                                            uint16_t port_max, int backlog, uint16_t *assigned_port)
 {
     socket_t listening_socket = INVALID_SOCKET_T;
@@ -160,7 +160,7 @@ socket_t net_create_listening_socket_range(net_addr_family_t family, uint16_t po
     // Try each port in the range
     for (port = port_min; port <= port_max; port++)
     {
-        listening_socket = net_create_listening_socket(family, port, backlog);
+        listening_socket = net_create_listening_socket(family, bind_address, port, backlog);
         if (listening_socket != INVALID_SOCKET_T)
         {
             // Successfully bound to this port

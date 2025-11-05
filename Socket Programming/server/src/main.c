@@ -17,6 +17,7 @@
 // Default configuration
 #define DEFAULT_PORT 21
 #define DEFAULT_ROOT_DIR "/tmp" // Change as HOMEWORK REQUIREMENT ON UNIX systems
+#define DEFAULT_BIND_ADDRESS "127.0.0.1"  // Bind to localhost only for security
 #define DEFAULT_MAX_BACKLOG 10
 #define DEFAULT_COMMAND_TIMEOUT_MS 300000  // 5 minutes
 #define DEFAULT_MAX_CONNECTIONS 100       // Maximum concurrent connections
@@ -40,6 +41,7 @@ void print_usage(const char *program_name)
     printf("Options:\n");
     printf("  -p, -port <port>       Port to listen on (default: %d)\n", DEFAULT_PORT);
     printf("  -r, -root <root_dir>   Root directory for FTP (default: %s)\n", DEFAULT_ROOT_DIR);
+    printf("  -b, -bind <address>    Address to bind to (default: %s)\n", DEFAULT_BIND_ADDRESS);
     printf("  -a, -addr <family>     Address family: ipv4, ipv6, unspec (default: unspec)\n");
     printf("  -l <log_level>  Log level: DEBUG, INFO, WARN, ERROR (default: INFO)\n");
     printf("  -c <max_conn>   Maximum concurrent connections (default: %d, -1 for unlimited)\n", DEFAULT_MAX_CONNECTIONS);
@@ -61,6 +63,8 @@ int main(int argc, char *argv[])
     };
     strncpy(config.root_dir, DEFAULT_ROOT_DIR, sizeof(config.root_dir) - 1);
     config.root_dir[sizeof(config.root_dir) - 1] = '\0';
+    strncpy(config.bind_address, DEFAULT_BIND_ADDRESS, sizeof(config.bind_address) - 1);
+    config.bind_address[sizeof(config.bind_address) - 1] = '\0';
 
     log_level_t log_level = LOG_LEVEL_INFO;
 
@@ -74,6 +78,11 @@ int main(int argc, char *argv[])
         {
             strncpy(config.root_dir, argv[++i], sizeof(config.root_dir) - 1);
             config.root_dir[sizeof(config.root_dir) - 1] = '\0';
+        }
+        else if ((strcmp(argv[i], "-b") == 0 || strcmp(argv[i], "-bind") == 0) && i + 1 < argc)
+        {
+            strncpy(config.bind_address, argv[++i], sizeof(config.bind_address) - 1);
+            config.bind_address[sizeof(config.bind_address) - 1] = '\0';
         }
         else if ((strcmp(argv[i], "-a") == 0 || strcmp(argv[i], "-addr") == 0) && i + 1 < argc)
         {

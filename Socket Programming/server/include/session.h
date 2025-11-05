@@ -56,6 +56,7 @@ typedef struct session_t
     socket_t control_socket; // Control connection socket
     char client_ip[64];      // Client IP address
     uint16_t client_port;    // Client port number
+    char bind_address[64];   // Server bind address for data connections
 
     // Authentication state
     session_state_t state;               // Current session state
@@ -117,18 +118,20 @@ typedef struct session_t
 } session_t;
 
 /**
- * @brief Creates a new FTP session.
+ * @brief Creates a new FTP session for a client connection.
  *
  * @param control_socket The control connection socket
- * @param client_ip Client IP address string
+ * @param client_ip Client IP address
  * @param client_port Client port number
  * @param root_dir Root directory for this session (for chroot)
+ * @param bind_address Server bind address for data connections
  * @return Pointer to newly created session, or NULL on error
  */
 session_t *session_create(socket_t control_socket,
                           const char *client_ip,
                           uint16_t client_port,
-                          const char *root_dir);
+                          const char *root_dir,
+                          const char *bind_address);
 
 /**
  * @brief Destroys an FTP session and frees resources.

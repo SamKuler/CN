@@ -51,14 +51,17 @@ typedef enum
 } net_addr_family_t;
 
 /**
- * @brief Creates a TCP socket and sets it to listen for incoming connections.
+ * @brief Creates a listening socket bound to a specific address and port.
+ *
+ * The socket is bound to the specified address and port, and set to listen with the given backlog.
  *
  * @param family The address family to use (IPv4, IPv6, or Unspecified).
+ * @param bind_address The IP address to bind to (NULL for any address).
  * @param port The port number to listen on (e.g., 21 for FTP).
  * @param backlog The maximum number of pending connections to queue.
  * @retval socket_t The listening socket descriptor on success, or INVALID_SOCKET_T on error.
  */
-socket_t net_create_listening_socket(net_addr_family_t family, uint16_t port, int backlog);
+socket_t net_create_listening_socket(net_addr_family_t family, const char *bind_address, uint16_t port, int backlog);
 
 /**
  * @brief Creates a listening socket within a specified port range.
@@ -67,13 +70,14 @@ socket_t net_create_listening_socket(net_addr_family_t family, uint16_t port, in
  * The function tries each port in the range until it finds one that works.
  *
  * @param family The address family to use (IPv4, IPv6, or Unspecified).
+ * @param bind_address The IP address to bind to (NULL for any address).
  * @param port_min The minimum port number to try.
  * @param port_max The maximum port number to try.
  * @param backlog The maximum number of pending connections to queue.
  * @param assigned_port A pointer to store the actual port that was assigned (can be NULL).
  * @return The listening socket descriptor on success, or INVALID_SOCKET_T on error.
  */
-socket_t net_create_listening_socket_range(net_addr_family_t family, uint16_t port_min,
+socket_t net_create_listening_socket_range(net_addr_family_t family, const char *bind_address, uint16_t port_min,
                                            uint16_t port_max, int backlog, uint16_t *assigned_port);
 
 /**

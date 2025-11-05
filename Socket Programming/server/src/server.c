@@ -178,6 +178,7 @@ int server_init(const server_config_t *config)
 
     LOG_INFO("=== FTP Server Initializing ===");
     LOG_INFO("Port: %u", g_config.port);
+    LOG_INFO("Bind address: %s", g_config.bind_address);
     LOG_INFO("Root directory: %s", g_config.root_dir);
     LOG_INFO("Max backlog: %d", g_config.max_backlog);
     LOG_INFO("Command timeout: %d ms", g_config.command_timeout_ms);
@@ -243,6 +244,7 @@ int server_init(const server_config_t *config)
 
     // Create listening socket
     g_listening_socket = net_create_listening_socket(g_config.address_family,
+                                                     g_config.bind_address,
                                                      g_config.port,
                                                      g_config.max_backlog);
     if (g_listening_socket == INVALID_SOCKET_T)
@@ -336,7 +338,8 @@ int server_run(void)
 
         // Create session for this client
         session_t *session = session_create(client_socket, client_ip,
-                                            client_port, g_config.root_dir);
+                                            client_port, g_config.root_dir,
+                                            g_config.bind_address);
         if (!session)
         {
             LOG_ERROR("Failed to create session for client %s:%u", client_ip, client_port);

@@ -22,7 +22,8 @@ static int normalize_and_validate_path(const char *base, const char *path,
 session_t *session_create(socket_t control_socket,
                           const char *client_ip,
                           uint16_t client_port,
-                          const char *root_dir)
+                          const char *root_dir,
+                          const char *bind_address)
 {
     if (control_socket == INVALID_SOCKET_T || !client_ip || !root_dir)
     {
@@ -45,6 +46,15 @@ session_t *session_create(socket_t control_socket,
     strncpy(session->client_ip, client_ip, sizeof(session->client_ip) - 1);
     session->client_ip[sizeof(session->client_ip) - 1] = '\0';
     session->client_port = client_port;
+    if (bind_address)
+    {
+        strncpy(session->bind_address, bind_address, sizeof(session->bind_address) - 1);
+        session->bind_address[sizeof(session->bind_address) - 1] = '\0';
+    }
+    else
+    {
+        strcpy(session->bind_address, "127.0.0.1"); // Default fallback
+    }
 
     // Set initial state
     session->state = SESSION_STATE_CONNECTED;
@@ -513,7 +523,7 @@ int session_set_pasv(session_t *session,
     // Create listening socket on dynamic port
     uint16_t assigned_port = 0;
     session->data_listen_socket = net_create_listening_socket_range(
-        NET_AF_UNSPEC, port_min, port_max, 1, &assigned_port);
+        NET_AF_UNSPEC, session->bind_address, port_min, port_max, 1, &assigned_port);
 
     if (session->data_listen_socket == INVALID_SOCKET_T)
     {
