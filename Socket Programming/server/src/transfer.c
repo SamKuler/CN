@@ -767,8 +767,7 @@ void *transfer_thread_func(void *arg)
         break;
 
     case TRANSFER_STATUS_ABORTED:
-        // Send the final 226 response for ABOR command sequence
-        // ABOR command handler already sent 426 response
+        // Send the 226 response for ABOR command sequence
         session_send_response(session, PROTO_RESP_CLOSING_DATA, "ABOR command successful");
         // Clear abort flag after sending response
         session_clear_transfer_should_abort(session);

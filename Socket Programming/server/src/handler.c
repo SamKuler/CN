@@ -1668,29 +1668,28 @@ int cmd_handle_abor(cmd_handler_context_t context, const proto_command_t *cmd)
     transfer_thread_state_t thread_state = session_get_transfer_thread_state(session);
     int transfer_thread_active = (thread_state == TRANSFER_THREAD_RUNNING);
 
-    // Set abort flag first, before closing connection
-    // This allows transfer functions to detect abort before getting network errors
-    if (transfer_thread_active)
+    int response = -1;
+    do
     {
-        session_set_transfer_should_abort(session);
-    }
+        // Set abort flag first, before closing connection
+        // This allows transfer functions to detect abort before getting network errors
+        if (transfer_thread_active)
+        {
+            session_set_transfer_should_abort(session);
+            response = 0;
+            break;
+        }
+
+        // No transfer was in progress
+        response = session_send_response(session, PROTO_RESP_DATA_CONN_OPEN_NO_TRANSFER,
+                                         "No transfer in progress");
+    } while (0);
 
     // Close any established or pending data connection
     // Do this after setting abort flag so transfer can detect abort first
     session_close_data_connection(session);
 
-    if (transfer_thread_active)
-    {
-        // Inform the client that the data connection has been closed
-        // The transfer thread will send the final 226 response
-        // Don't clear abort flag yet - transfer thread will do it
-        return session_send_response(session, PROTO_RESP_CONN_CLOSED,
-                                     "Data connection closed; transfer aborted");
-    }
-
-    // No transfer was in progress
-    return session_send_response(session, PROTO_RESP_DATA_CONN_OPEN_NO_TRANSFER,
-                                 "No transfer in progress");
+    return response;
 }
 
 // Informational commands
