@@ -118,18 +118,25 @@ void session_destroy(session_t *session)
     LOG_INFO("Destroying session for client %s:%u",
              session->client_ip, session->client_port);
 
-    // Wait for any ongoing transfer thread to complete
+    // Set quit flag so transfer thread won't send responses
+    session->should_quit = 1;
+
+    // Close data connections, this will cause transfer thread to exit with Connection error
+    session_close_data_connection(session);
+
+    // Wait for transfer thread to complete before freeing session
+    // This prevents use-after-free when transfer thread accesses session
     if (session->transfer_thread != 0)
     {
-        LOG_INFO("Waiting for session %s:%u transfer thread to complete...",
-                 session->client_ip, session->client_port);
+        transfer_thread_state_t state = session_get_transfer_thread_state(session);
+        if (state != TRANSFER_THREAD_IDLE)
+        {
+            LOG_DEBUG("Waiting for transfer thread to complete before destroying session...");
+        }
         pthread_join(session->transfer_thread, NULL);
         session->transfer_thread = 0;
-        session->transfer_thread_state = TRANSFER_THREAD_IDLE;
+        LOG_DEBUG("Transfer thread joined successfully.");
     }
-
-    // Close data connections
-    session_close_data_connection(session);
 
     // Close control socket
     if (session->control_socket != INVALID_SOCKET_T)
@@ -1009,8 +1016,8 @@ int session_start_transfer_thread(session_t *session, const void *params)
         return -1;
     }
 
-    // Detach thread so it cleans up automatically when done
-    pthread_detach(session->transfer_thread);
+    // Don't detach now - we need to join in session_destroy to prevent use-after-free
+    // pthread_detach(session->transfer_thread);
 
     pthread_mutex_unlock(&session->lock);
 

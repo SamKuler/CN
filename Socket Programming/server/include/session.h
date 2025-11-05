@@ -64,8 +64,8 @@ typedef struct session_t
     auth_permission_t permissions;       // User permissions (from auth module)
 
     // Directory management
-    char root_dir[SESSION_MAX_PATH];    // Root directory (chroot)
-    char current_dir[SESSION_MAX_PATH]; // Current working directory (relative to root)
+    char root_dir[SESSION_MAX_PATH];      // Root directory (chroot)
+    char current_dir[SESSION_MAX_PATH];   // Current working directory (relative to root)
     char user_home_dir[SESSION_MAX_PATH]; // User's home directory (from auth module)
 
     // Transfer parameters
@@ -92,21 +92,21 @@ typedef struct session_t
 
     // Transfer state
     int transfer_in_progress;           // 1 if a data transfer is currently in progress
-    int transfer_should_abort;               // 1 if transfer should be aborted (ABOR command)
-    
+    volatile int transfer_should_abort; // 1 if transfer should be aborted (ABOR command)
+
     // Async transfer thread support
-    pthread_t transfer_thread;                    // Transfer thread handle
+    pthread_t transfer_thread;                     // Transfer thread handle
     transfer_thread_state_t transfer_thread_state; // Current transfer thread state
-    void *transfer_params;                        // Parameters for current transfer (opaque)
-    transfer_status_t transfer_result;            // Result of completed transfer
+    void *transfer_params;                         // Parameters for current transfer (opaque)
+    transfer_status_t transfer_result;             // Result of completed transfer
 
     // Thread safety
     pthread_mutex_t lock; // Mutex for thread-safe access
 
     // Session management
-    time_t connect_time;  // Time when session was established
-    time_t last_activity; // Time of last activity
-    int should_quit;      // 1 if session should terminate
+    time_t connect_time;      // Time when session was established
+    time_t last_activity;     // Time of last activity
+    volatile int should_quit; // 1 if session should terminate
 
     // Statistics (for tracking data transfer)
     unsigned long long bytes_uploaded;   // Total bytes uploaded (STOR etc.)

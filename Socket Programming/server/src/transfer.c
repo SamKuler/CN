@@ -775,7 +775,10 @@ void *transfer_thread_func(void *arg)
         break;
 
     case TRANSFER_STATUS_CONN_ERROR:
-        session_send_response(session, PROTO_RESP_CONN_CLOSED, "Data connection closed; transfer aborted");
+        if (!session->should_quit)
+        {
+            session_send_response(session, PROTO_RESP_CONN_CLOSED, "Data connection closed; transfer aborted");
+        }
         break;
 
     case TRANSFER_STATUS_IO_ERROR:
