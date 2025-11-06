@@ -288,6 +288,11 @@ extern int cmd_handle_help(cmd_handler_context_t context, const proto_command_t 
 extern int cmd_handle_site(cmd_handler_context_t context, const proto_command_t *cmd); // SITE PARAMETERS
 extern int cmd_handle_noop(cmd_handler_context_t context, const proto_command_t *cmd); // NO OPERATION
 
+// Extension commands
+extern int cmd_handle_feat(cmd_handler_context_t context, const proto_command_t *cmd); // FEATURES
+extern int cmd_handle_size(cmd_handler_context_t context, const proto_command_t *cmd); // FILE SIZE
+extern int cmd_handle_mdtm(cmd_handler_context_t context, const proto_command_t *cmd); // MODIFICATION TIME
+
 int cmd_register_standard_handlers(void)
 {
     if (!g_initialized)
@@ -334,6 +339,11 @@ int cmd_register_standard_handlers(void)
 
     // result |= cmd_register_handler("SITE", cmd_handle_site, cmd_prev_handle_clear_all);
     result |= cmd_register_handler("NOOP", cmd_handle_noop, NULL);
+
+    // Extension commands
+    result |= cmd_register_handler("FEAT", cmd_handle_feat, NULL);
+    result |= cmd_register_handler("SIZE", cmd_handle_size, cmd_prev_handle_clear_all);
+    result |= cmd_register_handler("MDTM", cmd_handle_mdtm, cmd_prev_handle_clear_all);
 
     return (result == 0) ? 0 : -1;
 }

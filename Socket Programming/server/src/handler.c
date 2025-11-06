@@ -1,8 +1,8 @@
 /**
  * @file handlers.c
  * @brief Implementation of FTP command handlers
- * @version 0.3
- * @date 2025-11-04
+ * @version 0.5
+ * @date 2025-11-06
  */
 #include "command.h"
 #include "session.h"
@@ -1776,10 +1776,10 @@ int cmd_handle_abor(cmd_handler_context_t context, const proto_command_t *cmd)
 
     // Transfer is active - abort it
     session_set_transfer_should_abort(session);
-    
+
     // Close data connection to unblock any blocking I/O
     session_close_data_connection(session);
-    
+
     // The transfer thread will detect abort flag and clean up and send final response
     return 0;
 }
@@ -1814,4 +1814,185 @@ int cmd_handle_noop(cmd_handler_context_t context, const proto_command_t *cmd)
     // No operation, just acknowledge
     return session_send_response(session, PROTO_RESP_OK,
                                  "OK");
+}
+
+int cmd_handle_size(cmd_handler_context_t context, const proto_command_t *cmd)
+{
+    session_t *session = (session_t *)context;
+
+    if (!session->authenticated)
+    {
+        return session_send_response(session, PROTO_RESP_NOT_LOGGED_IN,
+                                     "Please login with USER and PASS");
+    }
+
+    if (!cmd->has_argument)
+    {
+        return session_send_response(session, PROTO_RESP_SYNTAX_ERROR_PARAM,
+                                     "Syntax error in parameters");
+    }
+
+    // Check path access permission (READ required for getting file size)
+    if (!session_check_path_access(session, cmd->argument, AUTH_PERM_READ))
+    {
+        LOG_WARN("User '%s' denied read access to: %s", session->username, cmd->argument);
+        return session_send_response(session, PROTO_RESP_FILE_UNAVAILABLE,
+                                     "Permission denied");
+    }
+
+    char abs_path[SESSION_MAX_PATH];
+    if (session_resolve_path(session, cmd->argument, abs_path, sizeof(abs_path)) != 0)
+    {
+        return session_send_response(session, PROTO_RESP_FILE_UNAVAILABLE,
+                                     "Invalid path");
+    }
+
+    // Check if file exists and is a regular file (not a directory)
+    if (!fs_path_exists(abs_path))
+    {
+        return session_send_response(session, PROTO_RESP_FILE_UNAVAILABLE,
+                                     "File not found");
+    }
+
+    if (fs_is_directory(abs_path))
+    {
+        return session_send_response(session, PROTO_RESP_FILE_UNAVAILABLE,
+                                     "Cannot get size of a directory");
+    }
+
+    // Check if file is locked and acquire shared lock
+    if (file_lock_is_exclusive_locked(abs_path))
+    {
+        return session_send_response(session, PROTO_RESP_FILE_ACTION_ABORTED,
+                                     "File is busy, try again later");
+    }
+
+    // Acquire shared lock to ensure file is not being modified
+    if (file_lock_acquire_shared(abs_path) != 0)
+    {
+        return session_send_response(session, PROTO_RESP_FILE_ACTION_ABORTED,
+                                     "File is busy, try again later");
+    }
+
+    long long file_size = fs_get_file_size(abs_path);
+    file_lock_release_shared(abs_path);
+
+    if (file_size < 0)
+    {
+        return session_send_response(session, PROTO_RESP_FILE_UNAVAILABLE,
+                                     "Cannot read file");
+    }
+
+    char response[PROTO_MAX_RESPONSE_LINE];
+    snprintf(response, sizeof(response), "%lld", file_size);
+
+    return session_send_response(session, PROTO_RESP_FILE_STATUS, response);
+}
+
+int cmd_handle_mdtm(cmd_handler_context_t context, const proto_command_t *cmd)
+{
+    session_t *session = (session_t *)context;
+
+    if (!session->authenticated)
+    {
+        return session_send_response(session, PROTO_RESP_NOT_LOGGED_IN,
+                                     "Please login with USER and PASS");
+    }
+
+    if (!cmd->has_argument)
+    {
+        return session_send_response(session, PROTO_RESP_SYNTAX_ERROR_PARAM,
+                                     "Syntax error in parameters");
+    }
+
+    // Check path access permission (READ required for getting file modification time)
+    if (!session_check_path_access(session, cmd->argument, AUTH_PERM_READ))
+    {
+        LOG_WARN("User '%s' denied read access to: %s", session->username, cmd->argument);
+        return session_send_response(session, PROTO_RESP_FILE_UNAVAILABLE,
+                                     "Permission denied");
+    }
+
+    char abs_path[SESSION_MAX_PATH];
+    if (session_resolve_path(session, cmd->argument, abs_path, sizeof(abs_path)) != 0)
+    {
+        return session_send_response(session, PROTO_RESP_FILE_UNAVAILABLE,
+                                     "Invalid path");
+    }
+
+    // Check if file exists and is a regular file (not a directory)
+    if (!fs_path_exists(abs_path))
+    {
+        return session_send_response(session, PROTO_RESP_FILE_UNAVAILABLE,
+                                     "File not found");
+    }
+
+    if (fs_is_directory(abs_path))
+    {
+        return session_send_response(session, PROTO_RESP_FILE_UNAVAILABLE,
+                                     "Cannot get modification time of a directory");
+    }
+
+    // Check if file is locked and acquire shared lock
+    if (file_lock_is_exclusive_locked(abs_path))
+    {
+        return session_send_response(session, PROTO_RESP_FILE_ACTION_ABORTED,
+                                     "File is busy, try again later");
+    }
+
+    // Acquire shared lock to ensure file is not being modified
+    if (file_lock_acquire_shared(abs_path) != 0)
+    {
+        return session_send_response(session, PROTO_RESP_FILE_ACTION_ABORTED,
+                                     "File is busy, try again later");
+    }
+
+    time_t mtime = fs_get_file_mtime(abs_path);
+    file_lock_release_shared(abs_path);
+
+    if (mtime < 0)
+    {
+        return session_send_response(session, PROTO_RESP_FILE_UNAVAILABLE,
+                                     "Cannot read file");
+    }
+
+    // Format time as YYYYMMDDHHMMSS
+    struct tm *tm_info = gmtime(&mtime);
+    if (!tm_info)
+    {
+        return session_send_response(session, PROTO_RESP_FILE_UNAVAILABLE,
+                                     "Cannot format time");
+    }
+
+    char time_str[15]; // YYYYMMDDHHMMSS + null
+    strftime(time_str, sizeof(time_str), "%Y%m%d%H%M%S", tm_info);
+
+    char response[PROTO_MAX_RESPONSE_LINE];
+    snprintf(response, sizeof(response), "%s", time_str);
+
+    return session_send_response(session, PROTO_RESP_FILE_STATUS, response);
+}
+
+int cmd_handle_feat(cmd_handler_context_t context, const proto_command_t *cmd)
+{
+    (void)cmd; // Unused parameter
+
+    session_t *session = (session_t *)context;
+    if (!session)
+    {
+        return -1;
+    }
+
+    // Send multiline response
+    if (session_send_response_multiline(session, PROTO_RESP_SYSTEM_STATUS, "Extensions supported:") != 0)
+        return -1;
+
+    if (session_send_response_multiline(session, PROTO_RESP_SYSTEM_STATUS, " SIZE") != 0)
+        return -1;
+    if (session_send_response_multiline(session, PROTO_RESP_SYSTEM_STATUS, " MDTM") != 0)
+        return -1;
+    if (session_send_response_multiline(session, PROTO_RESP_SYSTEM_STATUS, " REST STREAM") != 0)
+        return -1;
+
+    return session_send_response(session, PROTO_RESP_SYSTEM_STATUS, "End");
 }

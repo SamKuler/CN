@@ -86,6 +86,13 @@ int fs_is_directory(const char *path);
 long long fs_get_file_size(const char *path);
 
 /**
+ * @brief Get the file modification time.
+ * @param path Path to the file
+ * @return Modification time as time_t, or -1 for non-existence or error.
+ */
+time_t fs_get_file_mtime(const char *path);
+
+/**
  * @brief Get the directory size.
  * @param path Path to the directory
  * @return Directory size in byte, or -1 for non-existence or error.

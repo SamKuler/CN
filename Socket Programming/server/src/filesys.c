@@ -138,6 +138,40 @@ long long fs_get_file_size(const char *path)
 #endif
 }
 
+time_t fs_get_file_mtime(const char *path)
+{
+    if (path == NULL)
+        return -1;
+#ifdef _WIN32
+    WIN32_FILE_ATTRIBUTE_DATA fileInfo;
+    if (!GetFileAttributesExA(path, GetFileExInfoStandard, &fileInfo))
+        return -1;
+
+    // Check if it's a regular file (not a directory)
+    if (fileInfo.dwFileAttributes & FILE_ATTRIBUTE_DIRECTORY)
+        return -1;
+
+    // Convert FILETIME to time_t
+    FILETIME ft = fileInfo.ftLastWriteTime;
+    ULARGE_INTEGER ull;
+    ull.LowPart = ft.dwLowDateTime;
+    ull.HighPart = ft.dwHighDateTime;
+    
+    // FILETIME is in 100-nanosecond intervals since January 1, 1601
+    // Convert to seconds since January 1, 1970
+    return (time_t)((ull.QuadPart / 10000000ULL) - 11644473600ULL);
+#else
+    struct stat st;
+    if (stat(path, &st) != 0)
+        return -1;
+
+    if (!S_ISREG(st.st_mode))
+        return -1;
+
+    return st.st_mtime;
+#endif
+}
+
 #ifdef _WIN32
 static long long dir_size_recursive_win32(const char *path, int depth)
 {
