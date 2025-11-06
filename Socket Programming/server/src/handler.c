@@ -648,6 +648,14 @@ int cmd_handle_retr(cmd_handler_context_t context, const proto_command_t *cmd)
         }
         data_connection_opened = 1;
 
+        // Check if file is currently locked exclusively before attempting to acquire shared lock
+        if (file_lock_is_exclusive_locked(abs_path))
+        {
+            response = session_send_response(session, PROTO_RESP_FILE_ACTION_ABORTED,
+                                             "File is currently being written to, please try again later");
+            break;
+        }
+
         if (file_lock_acquire_shared(abs_path) != 0)
         {
             response = session_send_response(session, PROTO_RESP_FILE_ACTION_ABORTED,
@@ -794,6 +802,24 @@ int cmd_handle_stor(cmd_handler_context_t context, const proto_command_t *cmd)
         }
 
         data_connection_open = 1;
+
+        // Check if file is currently locked before attempting to acquire exclusive lock
+        int shared_locks = file_lock_get_shared_lock_count(abs_path);
+        int exclusive_locked = file_lock_is_exclusive_locked(abs_path);
+        if (shared_locks > 0 || exclusive_locked)
+        {
+            char msg[PROTO_MAX_RESPONSE_LINE];
+            if (exclusive_locked)
+            {
+                snprintf(msg, sizeof(msg), "File is currently being written to (%d readers waiting), please try again later", shared_locks);
+            }
+            else
+            {
+                snprintf(msg, sizeof(msg), "File is currently being read by %d client(s), please try again later", shared_locks);
+            }
+            response = session_send_response(session, PROTO_RESP_FILE_ACTION_ABORTED, msg);
+            break;
+        }
 
         if (file_lock_acquire_exclusive(abs_path) != 0)
         {
@@ -945,6 +971,24 @@ int cmd_handle_appe(cmd_handler_context_t context, const proto_command_t *cmd)
         }
 
         data_connection_open = 1;
+
+        // Check if file is currently locked before attempting to acquire exclusive lock
+        int shared_locks = file_lock_get_shared_lock_count(abs_path);
+        int exclusive_locked = file_lock_is_exclusive_locked(abs_path);
+        if (shared_locks > 0 || exclusive_locked)
+        {
+            char msg[PROTO_MAX_RESPONSE_LINE];
+            if (exclusive_locked)
+            {
+                snprintf(msg, sizeof(msg), "File is currently being written to (%d readers waiting), please try again later", shared_locks);
+            }
+            else
+            {
+                snprintf(msg, sizeof(msg), "File is currently being read by %d client(s), please try again later", shared_locks);
+            }
+            response = session_send_response(session, PROTO_RESP_FILE_ACTION_ABORTED, msg);
+            break;
+        }
 
         if (file_lock_acquire_exclusive(abs_path) != 0)
         {
@@ -1418,6 +1462,23 @@ int cmd_handle_rnfr(cmd_handler_context_t context, const proto_command_t *cmd)
                                      "File or directory not found");
     }
 
+    // Check if file is currently locked before attempting to acquire exclusive lock
+    int shared_locks = file_lock_get_shared_lock_count(abs_path);
+    int exclusive_locked = file_lock_is_exclusive_locked(abs_path);
+    if (shared_locks > 0 || exclusive_locked)
+    {
+        char msg[PROTO_MAX_RESPONSE_LINE];
+        if (exclusive_locked)
+        {
+            snprintf(msg, sizeof(msg), "File is currently being written to, please try again later");
+        }
+        else
+        {
+            snprintf(msg, sizeof(msg), "File is currently being read by %d client(s), please try again later", shared_locks);
+        }
+        return session_send_response(session, PROTO_RESP_FILE_ACTION_ABORTED, msg);
+    }
+
     // Try to acquire exclusive lock to ensure file is not in use
     // We acquire and immediately release it just to check availability
     if (file_lock_acquire_exclusive(abs_path) != 0)
@@ -1509,6 +1570,24 @@ int cmd_handle_rnto(cmd_handler_context_t context, const proto_command_t *cmd)
     // Use do-while(0) for structured error handling
     do
     {
+        // Check if source file is currently locked before attempting to acquire exclusive lock
+        int shared_locks = file_lock_get_shared_lock_count(from_path);
+        int exclusive_locked = file_lock_is_exclusive_locked(from_path);
+        if (shared_locks > 0 || exclusive_locked)
+        {
+            char msg[PROTO_MAX_RESPONSE_LINE];
+            if (exclusive_locked)
+            {
+                snprintf(msg, sizeof(msg), "Source file is currently being written to, please try again later");
+            }
+            else
+            {
+                snprintf(msg, sizeof(msg), "Source file is currently being read by %d client(s), please try again later", shared_locks);
+            }
+            response = session_send_response(session, PROTO_RESP_FILE_ACTION_ABORTED, msg);
+            break;
+        }
+
         // Acquire exclusive lock on source file
         if (file_lock_acquire_exclusive(from_path) != 0)
         {
@@ -1610,6 +1689,24 @@ int cmd_handle_dele(cmd_handler_context_t context, const proto_command_t *cmd)
     // Use do-while(0) for structured error handling
     do
     {
+        // Check if file is currently locked before attempting to acquire exclusive lock
+        int shared_locks = file_lock_get_shared_lock_count(abs_path);
+        int exclusive_locked = file_lock_is_exclusive_locked(abs_path);
+        if (shared_locks > 0 || exclusive_locked)
+        {
+            char msg[PROTO_MAX_RESPONSE_LINE];
+            if (exclusive_locked)
+            {
+                snprintf(msg, sizeof(msg), "File is currently being written to, please try again later");
+            }
+            else
+            {
+                snprintf(msg, sizeof(msg), "File is currently being read by %d client(s), please try again later", shared_locks);
+            }
+            response = session_send_response(session, PROTO_RESP_FILE_ACTION_ABORTED, msg);
+            break;
+        }
+
         // Acquire exclusive lock to ensure file is not in use
         if (file_lock_acquire_exclusive(abs_path) != 0)
         {

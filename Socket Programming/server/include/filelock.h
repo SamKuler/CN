@@ -41,4 +41,26 @@ void file_lock_release_shared(const char *path);
  */
 void file_lock_release_exclusive(const char *path);
 
+/**
+ * @brief Check if the specified path has an exclusive (write) lock.
+ *
+ * This function performs a non-blocking check to determine if a file is
+ * currently locked exclusively.
+ *
+ * @param path Absolute filesystem path to check.
+ * @return 1 if locked exclusively, 0 if not locked or locked shared, -1 on error.
+ */
+int file_lock_is_exclusive_locked(const char *path);
+
+/**
+ * @brief Check if the specified path has any shared (read) locks.
+ *
+ * This function performs a non-blocking check to determine if a file is
+ * currently locked for reading.
+ *
+ * @param path Absolute filesystem path to check.
+ * @return Number of shared locks (>0 if locked shared), 0 if not locked, -1 on error.
+ */
+int file_lock_get_shared_lock_count(const char *path);
+
 #endif

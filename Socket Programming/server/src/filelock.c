@@ -232,3 +232,47 @@ void file_lock_release_exclusive(const char *path)
 {
     file_lock_release_common(path, 1);
 }
+
+int file_lock_is_exclusive_locked(const char *path)
+{
+    if (!file_lock_path_valid(path))
+    {
+        return -1;
+    }
+
+    pthread_mutex_lock(&g_file_lock_mutex);
+
+    file_lock_entry_t *entry = file_lock_find(path, NULL);
+    if (!entry)
+    {
+        pthread_mutex_unlock(&g_file_lock_mutex);
+        return 0; // No lock entry
+    }
+
+    int result = (entry->writers > 0) ? 1 : 0;
+
+    pthread_mutex_unlock(&g_file_lock_mutex);
+    return result;
+}
+
+int file_lock_get_shared_lock_count(const char *path)
+{
+    if (!file_lock_path_valid(path))
+    {
+        return -1;
+    }
+
+    pthread_mutex_lock(&g_file_lock_mutex);
+
+    file_lock_entry_t *entry = file_lock_find(path, NULL);
+    if (!entry)
+    {
+        pthread_mutex_unlock(&g_file_lock_mutex);
+        return 0; // No lock entry
+    }
+
+    int result = entry->readers;
+
+    pthread_mutex_unlock(&g_file_lock_mutex);
+    return result;
+}
