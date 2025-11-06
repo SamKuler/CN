@@ -856,6 +856,7 @@ void *transfer_thread_func(void *arg)
         }
         // LIST/NLST operations don't acquire locks
         params->lock_acquired = 0;
+        LOG_DEBUG("Released file lock for %s", params->filepath);
     }
 
     // Free transfer parameters

@@ -80,6 +80,8 @@ static void *client_thread(void *arg)
     // Main command loop
     while (!session->should_quit && g_server_running)
     {
+        LOG_DEBUG("Waiting for command from client %s:%u",
+                  session->client_ip, session->client_port);
         int has_urgent = net_has_urgent_data(session->control_socket);
         if (has_urgent > 0)
         {
@@ -150,6 +152,7 @@ static void *client_thread(void *arg)
                 // Handler sends appropriate error response
             }
         }
+        LOG_DEBUG("Finished processing command: %s", cmd.command);
     }
 
     LOG_INFO("Client session ended for %s:%u", session->client_ip, session->client_port);
