@@ -1,4 +1,32 @@
-## FTP Server
+## 🚀 FTP Server
 
 `CMakeLists.txt` is used for development and test,
 `Makefile` is used for handin and autograde.
+
+## 🧪 Testing
+
+### Quick Start
+```bash
+# Build
+cd build && cmake .. && make
+
+# Start server (Terminal 1)
+./server
+
+# Run tests (Terminal 2)
+cd build
+ctest                      # Run all tests
+ctest -R FTPBasicTest -V   # Quick smoke test
+ctest -L integration -V    # Integration tests only
+```
+
+### Test Suite
+- **C Unit Tests**:
+  - `LoggerTest`
+  - `FilesysTest`
+- **Python Integration Tests**:
+  - `FTPBasicTest`
+  - `FTPAborTest`
+  - `FTPRestTest`
+  - `FTPComprehensiveTest`
+
