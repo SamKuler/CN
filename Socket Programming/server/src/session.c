@@ -633,6 +633,11 @@ void session_close_data_connection(session_t *session)
 
     if (session->data_socket != INVALID_SOCKET_T)
     {
+        // Shutdown both send and receive to immediately interrupt any blocking I/O
+        // Critical for ABOR command to work immediately
+        net_shutdown_both(session->data_socket);
+        
+        // Now close the socket to release resources
         net_close_socket(session->data_socket);
         session->data_socket = INVALID_SOCKET_T;
         LOG_DEBUG("Data connection closed");
