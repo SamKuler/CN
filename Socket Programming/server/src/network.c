@@ -443,6 +443,22 @@ int net_shutdown_recv(socket_t sock)
     return 0;
 }
 
+int net_shutdown_both(socket_t sock)
+{
+#ifdef _WIN32
+    if (shutdown(sock, SD_BOTH) < 0)
+    {
+        return -1;
+    }
+#else
+    if (shutdown(sock, SHUT_RDWR) < 0)
+    {
+        return -1;
+    }
+#endif
+    return 0;
+}
+
 int net_set_nonblocking(socket_t sock, int enable)
 {
 #ifdef _WIN32

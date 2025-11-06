@@ -203,6 +203,16 @@ int net_shutdown_send(socket_t sock);
  */
 int net_shutdown_recv(socket_t sock);
 
+/**
+ * @brief Shuts down both send and receive sides of a socket.
+ *
+ * This immediately interrupts any blocking I/O operations on the socket.
+ *
+ * @param sock The socket descriptor.
+ * @return 0 on success, -1 on error.
+ */
+int net_shutdown_both(socket_t sock);
+
 //  Additional utility functions
 
 /**
