@@ -72,7 +72,7 @@ transfer_status_t transfer_send_file(session_t *session, const char *filepath, l
 
     while (remaining > 0)
     {
-        // Check if transfer has been aborted
+        // Check if transfer has been aborted before attempting I/O
         if (session_should_abort_transfer(session))
         {
             LOG_INFO("File transfer aborted: %s", filepath);
@@ -101,9 +101,17 @@ transfer_status_t transfer_send_file(session_t *session, const char *filepath, l
 
         if (net_send_all(session->data_socket, buffer, (size_t)bytes_read) != 0)
         {
-            LOG_ERROR("Failed to send data to client");
-            status = session_should_abort_transfer(session) ? TRANSFER_STATUS_ABORTED
-                                                            : TRANSFER_STATUS_CONN_ERROR;
+            // Check if this error is due to abort
+            if (session_should_abort_transfer(session))
+            {
+                LOG_INFO("File transfer aborted by ABOR command (connection closed): %s", filepath);
+                status = TRANSFER_STATUS_ABORTED;
+            }
+            else
+            {
+                LOG_ERROR("Failed to send data to client");
+                status = TRANSFER_STATUS_CONN_ERROR;
+            }
             break;
         }
 
@@ -154,7 +162,7 @@ transfer_status_t transfer_receive_file(session_t *session, const char *filepath
 
     while (1)
     {
-        // Check if transfer has been aborted
+        // Check if transfer has been aborted before attempting I/O
         if (session_should_abort_transfer(session))
         {
             LOG_INFO("File reception aborted: %s", filepath);
@@ -167,15 +175,29 @@ transfer_status_t transfer_receive_file(session_t *session, const char *filepath
 
         if (bytes_received < 0)
         {
-            LOG_ERROR("Failed to receive data from client");
-            status = session_should_abort_transfer(session) ? TRANSFER_STATUS_ABORTED
-                                                            : TRANSFER_STATUS_CONN_ERROR;
+            // Check if this error is due to abort
+            if (session_should_abort_transfer(session))
+            {
+                LOG_INFO("File reception aborted by ABOR command (connection closed): %s", filepath);
+                status = TRANSFER_STATUS_ABORTED;
+            }
+            else
+            {
+                LOG_ERROR("Failed to receive data from client");
+                status = TRANSFER_STATUS_CONN_ERROR;
+            }
             break;
         }
 
         if (bytes_received == 0)
         {
-            // Client closed connection or end of transmission
+            // Client closed connection - check if it was an abort
+            if (session_should_abort_transfer(session))
+            {
+                LOG_INFO("File reception aborted by ABOR command (connection closed gracefully): %s", filepath);
+                status = TRANSFER_STATUS_ABORTED;
+            }
+            // Otherwise it's normal completion (end of transmission)
             break;
         }
 
@@ -255,7 +277,7 @@ transfer_status_t transfer_send_file_ascii(session_t *session, const char *filep
 
     while (remaining > 0)
     {
-        // Check if transfer has been aborted
+        // Check if transfer has been aborted before attempting I/O
         if (session_should_abort_transfer(session))
         {
             LOG_INFO("ASCII file transfer aborted: %s", filepath);
@@ -292,9 +314,17 @@ transfer_status_t transfer_send_file_ascii(session_t *session, const char *filep
 
         if (net_send_all(session->data_socket, write_buffer, (size_t)converted_bytes) != 0)
         {
-            LOG_ERROR("Failed to send data to client in ASCII mode");
-            status = session_should_abort_transfer(session) ? TRANSFER_STATUS_ABORTED
-                                                            : TRANSFER_STATUS_CONN_ERROR;
+            // Check if this error is due to abort
+            if (session_should_abort_transfer(session))
+            {
+                LOG_INFO("ASCII file transfer aborted by ABOR command (connection closed): %s", filepath);
+                status = TRANSFER_STATUS_ABORTED;
+            }
+            else
+            {
+                LOG_ERROR("Failed to send data to client in ASCII mode");
+                status = TRANSFER_STATUS_CONN_ERROR;
+            }
             break;
         }
 
@@ -350,7 +380,7 @@ transfer_status_t transfer_receive_file_ascii(session_t *session, const char *fi
 
     while (1)
     {
-        // Check if transfer has been aborted
+        // Check if transfer has been aborted before attempting I/O
         if (session_should_abort_transfer(session))
         {
             LOG_INFO("ASCII file reception aborted: %s", filepath);
@@ -363,15 +393,29 @@ transfer_status_t transfer_receive_file_ascii(session_t *session, const char *fi
 
         if (bytes_received < 0)
         {
-            LOG_ERROR("Failed to receive data from client in ASCII mode");
-            status = session_should_abort_transfer(session) ? TRANSFER_STATUS_ABORTED
-                                                            : TRANSFER_STATUS_CONN_ERROR;
+            // Check if this error is due to abort
+            if (session_should_abort_transfer(session))
+            {
+                LOG_INFO("ASCII file reception aborted by ABOR command (connection closed): %s", filepath);
+                status = TRANSFER_STATUS_ABORTED;
+            }
+            else
+            {
+                LOG_ERROR("Failed to receive data from client in ASCII mode");
+                status = TRANSFER_STATUS_CONN_ERROR;
+            }
             break;
         }
 
         if (bytes_received == 0)
         {
-            // Client closed connection or end of transmission
+            // Client closed connection - check if it was an abort
+            if (session_should_abort_transfer(session))
+            {
+                LOG_INFO("ASCII file reception aborted by ABOR command (connection closed gracefully): %s", filepath);
+                status = TRANSFER_STATUS_ABORTED;
+            }
+            // Otherwise it's normal completion (end of transmission)
             break;
         }
 
@@ -833,6 +877,8 @@ void *transfer_thread_func(void *arg)
 
     // Reset to idle after a short delay to allow any pending operations to complete
     session_set_transfer_thread_state(session, TRANSFER_THREAD_IDLE);
+
+    LOG_DEBUG("Session from %s, transfer thread exiting", session->client_ip);
 
     return NULL;
 }
