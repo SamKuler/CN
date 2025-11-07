@@ -11,6 +11,7 @@
 #include <stdio.h>
 #include <string.h>
 #include <stdlib.h>
+#include <time.h>
 
 #ifdef _WIN32
 #include <ws2tcpip.h>
@@ -150,15 +151,25 @@ socket_t net_create_listening_socket_range(net_addr_family_t family, const char 
 {
     socket_t listening_socket = INVALID_SOCKET_T;
     uint16_t port;
+    uint16_t range_size;
+    uint16_t start_offset;
 
     if (port_min > port_max)
     {
         return INVALID_SOCKET_T;
     }
 
-    // Try each port in the range
-    for (port = port_min; port <= port_max; port++)
+    range_size = port_max - port_min + 1;
+
+    // Randomize starting port! To distribute load and avoid conflicts
+    // Use time and thread-specific values for better randomization
+    start_offset = (uint16_t)((time(NULL) + (uintptr_t)&port) % range_size);
+
+    // Try each port in the range, starting from random offset
+    for (uint16_t i = 0; i < range_size; i++)
     {
+        port = port_min + ((start_offset + i) % range_size);
+
         listening_socket = net_create_listening_socket(family, bind_address, port, backlog);
         if (listening_socket != INVALID_SOCKET_T)
         {
