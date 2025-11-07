@@ -19,10 +19,42 @@
 
 #ifdef _WIN32
 #include <stdint.h>
+#ifdef __MINGW32__
+// MinGW defines mode_t in sys/types.h
+#include <sys/types.h>
+#else
+// For other Windows compilers
 typedef uint32_t mode_t;
+#endif
+
 typedef uint32_t nlink_t;
 typedef uint32_t uid_t;
 typedef uint32_t gid_t;
+
+// POSIX file type and permission constants for Windows
+#define S_IFMT 0170000   // File type mask
+#define S_IFDIR 0040000  // Directory
+#define S_IFCHR 0020000  // Character device
+#define S_IFBLK 0060000  // Block device
+#define S_IFREG 0100000  // Regular file
+#define S_IFIFO 0010000  // FIFO
+#define S_IFLNK 0120000  // Symbolic link
+#define S_IFSOCK 0140000 // Socket
+
+// Permission bits
+#define S_IRWXU 00700 // Read, write, execute by owner
+#define S_IRUSR 00400 // Read by owner
+#define S_IWUSR 00200 // Write by owner
+#define S_IXUSR 00100 // Execute by owner
+#define S_IRWXG 00070 // Read, write, execute by group
+#define S_IRGRP 00040 // Read by group
+#define S_IWGRP 00020 // Write by group
+#define S_IXGRP 00010 // Execute by group
+#define S_IRWXO 00007 // Read, write, execute by others
+#define S_IROTH 00004 // Read by others
+#define S_IWOTH 00002 // Write by others
+#define S_IXOTH 00001 // Execute by others
+
 #else
 #include <sys/types.h>
 #endif

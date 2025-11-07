@@ -156,7 +156,7 @@ time_t fs_get_file_mtime(const char *path)
     ULARGE_INTEGER ull;
     ull.LowPart = ft.dwLowDateTime;
     ull.HighPart = ft.dwHighDateTime;
-    
+
     // FILETIME is in 100-nanosecond intervals since January 1, 1601
     // Convert to seconds since January 1, 1970
     return (time_t)((ull.QuadPart / 10000000ULL) - 11644473600ULL);
@@ -182,7 +182,7 @@ static long long dir_size_recursive_win32(const char *path, int depth)
     char search_path[PATH_MAX];
 
     // Create search pattern: path\*
-    if (snprintf(search_path, sizeof(search_path), "%s\\*", path) >= sizeof(search_path))
+    if (fs_join_path(search_path, PATH_MAX, path, "*") != 0)
         return -1;
 
     WIN32_FIND_DATAA find_data;
@@ -322,7 +322,7 @@ int fs_list_directory(const char *path, fs_file_info_t *file_list, int max_files
         return -1;
 #ifdef _WIN32
     char search_path[PATH_MAX];
-    if (snprintf(search_path, sizeof(search_path), "%s\\*", path) >= sizeof(search_path))
+    if (fs_join_path(search_path, PATH_MAX, path, "*") != 0)
         return -1;
 
     WIN32_FIND_DATAA find_data;
@@ -531,8 +531,13 @@ const char *fs_extract_filename(const char *path)
 {
     if (path == NULL)
         return NULL;
+
+    // Find the last path separator
+    const char *filename = strrchr(path, '/');
 #ifdef _WIN32
-    const char *filename = strrchr(path, '\\');
+    const char *backslash = strrchr(path, '\\');
+    if (!filename || (backslash && backslash > filename)) // use the rightmost separator
+        filename = backslash;
 #else
     const char *filename = strrchr(path, '/');
 #endif
@@ -962,7 +967,7 @@ static int remove_directory_recursive_win32(const char *path, int depth)
         return -1;
 
     char search_path[PATH_MAX];
-    if (snprintf(search_path, sizeof(search_path), "%s\\*", path) >= sizeof(search_path))
+    if (fs_join_path(search_path, PATH_MAX, path, "*") != 0)
         return -1;
 
     WIN32_FIND_DATAA find_data;
