@@ -565,9 +565,10 @@ int session_open_data_connection(session_t *session, int timeout_ms)
 
         if (session->data_socket == INVALID_SOCKET_T)
         {
+            int err = net_get_last_error();
             pthread_mutex_unlock(&session->lock);
-            LOG_ERROR("Failed to connect to client in active mode: %s:%u",
-                      session->active_ip, session->active_port);
+            LOG_ERROR("Failed to connect to client in active mode: %s:%u, error: %s",
+                      session->active_ip, session->active_port, net_get_error_string(err));
             return -1;
         }
 
@@ -599,8 +600,9 @@ int session_open_data_connection(session_t *session, int timeout_ms)
 
         if (session->data_socket == INVALID_SOCKET_T)
         {
+            int err = net_get_last_error();
             pthread_mutex_unlock(&session->lock);
-            LOG_ERROR("Failed to accept connection in passive mode");
+            LOG_ERROR("Failed to accept connection in passive mode: %s (code=%d)", net_get_error_string(err), err);
             return -1;
         }
 
