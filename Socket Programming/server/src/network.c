@@ -14,7 +14,6 @@
 
 #ifdef _WIN32
 #include <ws2tcpip.h>
-#pragma comment(lib, "ws2_32.lib")
 #else
 #include <unistd.h>
 #include <fcntl.h>

@@ -19,7 +19,7 @@ if(ENABLE_COVERAGE)
 endif()
 
 # Option to enable OpenSSL for TCP/TLS & FTPs
-option(ENABLE_OPENSSL "Enable TLS Support (using OpenSSL) over TCP." ON)
+option(ENABLE_OPENSSL "Enable TLS Support (using OpenSSL) over TCP." OFF)
 if (ENABLE_OPENSSL)
     message(STATUS "Building with OpenSSL flags")
     find_package(OpenSSL REQUIRED)
@@ -54,6 +54,10 @@ endif()
 if(ENABLE_OPENSSL)
     target_compile_definitions(ftpserver PUBLIC ENABLE_OPENSSL)
     target_link_libraries(ftpserver PUBLIC OpenSSL::SSL OpenSSL::Crypto)
+endif()
+
+if(WIN32)
+    target_link_libraries(ftpserver PUBLIC ws2_32)
 endif()
 
 # Main program
