@@ -109,7 +109,8 @@ transfer_status_t transfer_send_file(session_t *session, const char *filepath, l
             }
             else
             {
-                LOG_ERROR("Failed to send data to client");
+                int err = net_get_last_error();
+                LOG_ERROR("Failed to send data to client: %s (code=%d)", net_get_error_string(err), err);
                 status = TRANSFER_STATUS_CONN_ERROR;
             }
             break;
@@ -183,7 +184,8 @@ transfer_status_t transfer_receive_file(session_t *session, const char *filepath
             }
             else
             {
-                LOG_ERROR("Failed to receive data from client");
+                int err = net_get_last_error();
+                LOG_ERROR("Failed to receive data from client: %s (code=%d)", net_get_error_string(err), err);
                 status = TRANSFER_STATUS_CONN_ERROR;
             }
             break;
@@ -322,7 +324,8 @@ transfer_status_t transfer_send_file_ascii(session_t *session, const char *filep
             }
             else
             {
-                LOG_ERROR("Failed to send data to client in ASCII mode");
+                int err = net_get_last_error();
+                LOG_ERROR("Failed to send data to client in ASCII mode: %s (code=%d)", net_get_error_string(err), err);
                 status = TRANSFER_STATUS_CONN_ERROR;
             }
             break;
@@ -401,7 +404,8 @@ transfer_status_t transfer_receive_file_ascii(session_t *session, const char *fi
             }
             else
             {
-                LOG_ERROR("Failed to receive data from client in ASCII mode");
+                int err = net_get_last_error();
+                LOG_ERROR("Failed to receive data from client in ASCII mode: %s (code=%d)", net_get_error_string(err), err);
                 status = TRANSFER_STATUS_CONN_ERROR;
             }
             break;
@@ -620,9 +624,17 @@ static transfer_status_t send_listing(session_t *session,
 
         if (net_send_all(session->data_socket, line_buffer, strlen(line_buffer)) != 0)
         {
-            LOG_ERROR("Failed to send listing line");
-            return session_should_abort_transfer(session) ? TRANSFER_STATUS_ABORTED
-                                                          : TRANSFER_STATUS_CONN_ERROR;
+            if (session_should_abort_transfer(session))
+            {
+                LOG_INFO("Directory listing aborted by ABOR command (connection closed): %s", dirpath);
+                return TRANSFER_STATUS_ABORTED;
+            }
+            else
+            {
+                int err = net_get_last_error();
+                LOG_ERROR("Failed to send listing line: %s (code=%d)", net_get_error_string(err), err);
+                return TRANSFER_STATUS_CONN_ERROR;
+            }
         }
 
         entries_sent++;
@@ -718,9 +730,17 @@ transfer_status_t transfer_send_nlst(session_t *session, const char *dirpath)
 
         if (net_send_all(session->data_socket, line_buffer, strlen(line_buffer)) != 0)
         {
-            LOG_ERROR("Failed to send name list line");
-            return session_should_abort_transfer(session) ? TRANSFER_STATUS_ABORTED
-                                                          : TRANSFER_STATUS_CONN_ERROR;
+            if (session_should_abort_transfer(session))
+            {
+                LOG_INFO("Name list transfer aborted by ABOR command (connection closed): %s", dirpath);
+                return TRANSFER_STATUS_ABORTED;
+            }
+            else
+            {
+                int err = net_get_last_error();
+                LOG_ERROR("Failed to send name list line: %s (code=%d)", net_get_error_string(err), err);
+                return TRANSFER_STATUS_CONN_ERROR;
+            }
         }
     }
 
