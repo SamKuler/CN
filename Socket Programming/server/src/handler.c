@@ -640,13 +640,6 @@ int cmd_handle_retr(cmd_handler_context_t context, const proto_command_t *cmd)
     // Use do-while(0) for structured error handling
     do
     {
-        if (session_open_data_connection(session, 10000) != 0)
-        {
-            response = session_send_response(session, PROTO_RESP_CANT_OPEN_DATA,
-                                             "Can't open data connection");
-            break;
-        }
-        data_connection_opened = 1;
 
         // Check if file is currently locked exclusively before attempting to acquire shared lock
         if (file_lock_is_exclusive_locked(abs_path))
@@ -704,6 +697,14 @@ int cmd_handle_retr(cmd_handler_context_t context, const proto_command_t *cmd)
             response = -1;
             break;
         }
+
+        if (session_open_data_connection(session, 10000) != 0)
+        {
+            response = session_send_response(session, PROTO_RESP_CANT_OPEN_DATA,
+                                             "Can't open data connection");
+            break;
+        }
+        data_connection_opened = 1;
 
         // Start transfer thread, clear restart offset
         session_clear_restart_offset(session);
@@ -794,15 +795,6 @@ int cmd_handle_stor(cmd_handler_context_t context, const proto_command_t *cmd)
     // Use do-while(0) for structured error handling
     do
     {
-        if (session_open_data_connection(session, 10000) != 0)
-        {
-            response = session_send_response(session, PROTO_RESP_CANT_OPEN_DATA,
-                                             "Can't open data connection");
-            break;
-        }
-
-        data_connection_open = 1;
-
         // Check if file is currently locked before attempting to acquire exclusive lock
         int shared_locks = file_lock_get_shared_lock_count(abs_path);
         int exclusive_locked = file_lock_is_exclusive_locked(abs_path);
@@ -876,6 +868,14 @@ int cmd_handle_stor(cmd_handler_context_t context, const proto_command_t *cmd)
             response = -1;
             break;
         }
+
+        if (session_open_data_connection(session, 10000) != 0)
+        {
+            response = session_send_response(session, PROTO_RESP_CANT_OPEN_DATA,
+                                             "Can't open data connection");
+            break;
+        }
+        data_connection_open = 1;
 
         // Start transfer thread, clear restart offset
         session_clear_restart_offset(session);
@@ -963,15 +963,6 @@ int cmd_handle_appe(cmd_handler_context_t context, const proto_command_t *cmd)
     // Use do-while(0) for structured error handling
     do
     {
-        if (session_open_data_connection(session, 10000) != 0)
-        {
-            response = session_send_response(session, PROTO_RESP_CANT_OPEN_DATA,
-                                             "Can't open data connection");
-            break;
-        }
-
-        data_connection_open = 1;
-
         // Check if file is currently locked before attempting to acquire exclusive lock
         int shared_locks = file_lock_get_shared_lock_count(abs_path);
         int exclusive_locked = file_lock_is_exclusive_locked(abs_path);
@@ -1021,6 +1012,14 @@ int cmd_handle_appe(cmd_handler_context_t context, const proto_command_t *cmd)
             response = -1;
             break;
         }
+
+        if (session_open_data_connection(session, 10000) != 0)
+        {
+            response = session_send_response(session, PROTO_RESP_CANT_OPEN_DATA,
+                                             "Can't open data connection");
+            break;
+        }
+        data_connection_open = 1;
 
         // Prepare transfer parameters
         transfer_params_t params;
@@ -1146,6 +1145,14 @@ int cmd_handle_list(cmd_handler_context_t context, const proto_command_t *cmd)
     // Use do-while(0) for structured error handling
     do
     {
+        // Inform client that transfer is starting
+        if (session_send_response(session, PROTO_RESP_FILE_STATUS_OK,
+                                  "Opening data connection for directory listing") != 0)
+        {
+            response = -1;
+            break;
+        }
+
         // Open data connection
         if (session_open_data_connection(session, 10000) != 0)
         {
@@ -1154,14 +1161,6 @@ int cmd_handle_list(cmd_handler_context_t context, const proto_command_t *cmd)
             break;
         }
         data_connection_opened = 1;
-
-        // Inform client that transfer is starting
-        if (session_send_response(session, PROTO_RESP_FILE_STATUS_OK,
-                                  "Opening data connection for directory listing") != 0)
-        {
-            response = -1;
-            break;
-        }
 
         // Prepare transfer parameters
         transfer_params_t params;
@@ -1241,6 +1240,14 @@ int cmd_handle_nlst(cmd_handler_context_t context, const proto_command_t *cmd)
     // Use do-while(0) for structured error handling
     do
     {
+        // Inform client that transfer is starting
+        if (session_send_response(session, PROTO_RESP_FILE_STATUS_OK,
+                                  "Opening data connection for name list") != 0)
+        {
+            response = -1;
+            break;
+        }
+
         // Open data connection
         if (session_open_data_connection(session, 10000) != 0)
         {
@@ -1249,14 +1256,6 @@ int cmd_handle_nlst(cmd_handler_context_t context, const proto_command_t *cmd)
             break;
         }
         data_connection_opened = 1;
-
-        // Inform client that transfer is starting
-        if (session_send_response(session, PROTO_RESP_FILE_STATUS_OK,
-                                  "Opening data connection for name list") != 0)
-        {
-            response = -1;
-            break;
-        }
 
         // Prepare transfer parameters
         transfer_params_t params;
