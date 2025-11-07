@@ -1,8 +1,8 @@
 /**
  * @file session.c
  * @brief FTP session management implementation
- * @version 0.2
- * @date 2025-11-03
+ * @version 0.4
+ * @date 2025-11-07
  */
 #include "session.h"
 #include "auth.h"
@@ -14,6 +14,7 @@
 #include <stdio.h>
 #include <string.h>
 #include <time.h>
+#include <errno.h>
 
 // Forward declaration of helper functions
 static int normalize_and_validate_path(const char *base, const char *path,
@@ -523,13 +524,21 @@ int session_set_pasv(session_t *session,
     // Create listening socket on dynamic port
     uint16_t assigned_port = 0;
     session->data_listen_socket = net_create_listening_socket_range(
-        NET_AF_UNSPEC, session->bind_address, port_min, port_max, 1, &assigned_port);
+        NET_AF_UNSPEC, session->bind_address, port_min, port_max, 5, &assigned_port); // Larger backlog
 
     if (session->data_listen_socket == INVALID_SOCKET_T)
     {
         pthread_mutex_unlock(&session->lock);
         LOG_ERROR("Failed to create passive mode listening socket");
         return -1;
+    }
+
+    // Set non-blocking mode to prevent accept() from hanging
+    // This is important for both Windows and Unix
+    if (net_set_nonblocking(session->data_listen_socket, 1) != 0)
+    {
+        LOG_WARN("Failed to set listening socket to non-blocking mode");
+        // Continue anyway - not fatal
     }
 
     session->passive_port = assigned_port;
@@ -584,33 +593,138 @@ int session_open_data_connection(session_t *session, int timeout_ms)
             return -1;
         }
 
-        // Wait for connection with timeout
+        // Save socket fd and port before releasing lock
+        socket_t listen_sock = session->data_listen_socket;
+        uint16_t port = session->passive_port;
+
+        // CRITICAL: Release lock before blocking on select()
+        // This allows other threads (e.g., session cleanup) to proceed
+        // If the socket is closed while we're in select(), select() will return with error
+        pthread_mutex_unlock(&session->lock);
+
+        // Wait for connection with timeout (without holding lock)
+        int ready = 0;
         if (timeout_ms >= 0)
         {
-            int ready = net_wait_readable(session->data_listen_socket, timeout_ms);
-            if (ready <= 0)
+            LOG_DEBUG("Waiting for passive mode connection on port %u (timeout=%dms)", port, timeout_ms);
+            ready = net_wait_readable(listen_sock, timeout_ms);
+
+            if (ready < 0)
             {
-                pthread_mutex_unlock(&session->lock);
-                LOG_ERROR("Timeout waiting for passive mode connection");
+                // Error in select - socket was likely closed
+                // On Windows, this returns WSAENOTSOCK (10038) or WSAEINTR (10004)
+                // On Unix, this returns EBADF (9) or EINTR (4)
+                // Both are normal when session is being cleaned up
+                int err = net_get_last_error();
+                LOG_DEBUG("Select error while waiting for connection on port %u (error=%d) - likely socket closed", port, err);
                 return -1;
             }
+            else if (ready == 0)
+            {
+                // Timeout
+                LOG_ERROR("Timeout waiting for passive mode connection on port %u after %dms (data_mode=%d, bind=%s, client=%s:%u)",
+                          port, timeout_ms, session->data_mode, session->bind_address, session->client_ip, session->client_port);
+                return -1;
+            }
+
+            LOG_DEBUG("Connection ready on port %u", port);
         }
 
-        session->data_socket = net_accept(session->data_listen_socket, NULL, 0, NULL);
+        // Re-acquire lock before accessing session state
+        pthread_mutex_lock(&session->lock);
+
+        // CRITICAL: Verify the socket is still the same one we waited on
+        // Another thread might have closed and reopened it, or the fd was reused
+        if (session->data_listen_socket != listen_sock)
+        {
+            pthread_mutex_unlock(&session->lock);
+            LOG_DEBUG("Listening socket changed during wait (was fd=%d, now fd=%d) - aborting",
+                      (int)listen_sock, (int)session->data_listen_socket);
+            return -1;
+        }
+
+        // Check if session is being destroyed
+        if (session->should_quit)
+        {
+            pthread_mutex_unlock(&session->lock);
+            LOG_DEBUG("Session terminating - aborting data connection");
+            return -1;
+        }
+
+        // Accept the connection (socket is non-blocking)
+        // Retry a few times if we get EAGAIN/WSAEWOULDBLOCK
+        // This handles rare race conditions where select() says ready but accept() says not ready
+        int accept_retries = 3;
+        while (accept_retries > 0)
+        {
+            session->data_socket = net_accept(session->data_listen_socket, NULL, 0, NULL);
+
+            if (session->data_socket != INVALID_SOCKET_T)
+            {
+                // Success!
+                break;
+            }
+
+            int err = net_get_last_error();
+
+            // Check if it's a "would block" error
+            int would_block = net_is_would_block(err);
+
+            if (would_block && accept_retries > 1)
+            {
+                // Temporary condition - retry after brief delay
+                pthread_mutex_unlock(&session->lock);
+                LOG_DEBUG("Accept would block (retry %d/3), retrying...", 4 - accept_retries);
+
+                sleep_ms(10); // 10ms
+
+                pthread_mutex_lock(&session->lock);
+
+                // Recheck session state after sleep
+                if (session->should_quit || session->data_listen_socket != listen_sock)
+                {
+                    pthread_mutex_unlock(&session->lock);
+                    LOG_DEBUG("Session state changed during accept retry");
+                    return -1;
+                }
+
+                accept_retries--;
+                continue;
+            }
+
+            // Other error or final retry failed
+            pthread_mutex_unlock(&session->lock);
+            if (would_block)
+            {
+                LOG_ERROR("Accept would block after all retries on port %u", port);
+            }
+            else
+            {
+                LOG_ERROR("Failed to accept connection in passive mode on port %u: %s (code=%d)",
+                          port, net_get_error_string(err), err);
+            }
+            return -1;
+        }
 
         if (session->data_socket == INVALID_SOCKET_T)
         {
-            int err = net_get_last_error();
             pthread_mutex_unlock(&session->lock);
-            LOG_ERROR("Failed to accept connection in passive mode: %s (code=%d)", net_get_error_string(err), err);
+            LOG_ERROR("Failed to accept connection after retries on port %u", port);
             return -1;
+        }
+
+        // Set accepted socket back to blocking mode for data transfer
+        if (net_set_nonblocking(session->data_socket, 0) != 0)
+        {
+            LOG_WARN("Failed to set data socket back to blocking mode");
+            // Continue anyway
         }
 
         // Close listening socket after accepting
         net_close_socket(session->data_listen_socket);
         session->data_listen_socket = INVALID_SOCKET_T;
 
-        LOG_DEBUG("Data connection accepted in passive mode");
+        LOG_DEBUG("Data connection accepted in passive mode on port %u", port);
     }
     else
     {
@@ -638,7 +752,7 @@ void session_close_data_connection(session_t *session)
         // Shutdown both send and receive to immediately interrupt any blocking I/O
         // Critical for ABOR command to work immediately
         net_shutdown_both(session->data_socket);
-        
+
         // Now close the socket to release resources
         net_close_socket(session->data_socket);
         session->data_socket = INVALID_SOCKET_T;
@@ -647,6 +761,8 @@ void session_close_data_connection(session_t *session)
 
     if (session->data_listen_socket != INVALID_SOCKET_T)
     {
+        // Close listening socket
+        // Shutdown is not necessary here since we are not connected
         net_close_socket(session->data_listen_socket);
         session->data_listen_socket = INVALID_SOCKET_T;
         LOG_DEBUG("Data listening socket closed");

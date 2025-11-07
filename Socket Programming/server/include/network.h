@@ -331,4 +331,15 @@ int net_get_last_error(void);
  */
 const char *net_get_error_string(int error_code);
 
+/**
+ * @brief Checks if an error code indicates a "would block" condition.
+ *
+ * On Windows, this checks for WSAEWOULDBLOCK.
+ * On POSIX systems, this checks for EAGAIN or EWOULDBLOCK.
+ *
+ * @param error_code The error code (from net_get_last_error()).
+ * @return 1 if the error indicates "would block", 0 otherwise.
+ */
+int net_is_would_block(int error_code);
+
 #endif

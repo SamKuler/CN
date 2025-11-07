@@ -656,6 +656,15 @@ const char *net_get_error_string(int error_code)
     return buffer;
 }
 
+int net_is_would_block(int error_code)
+{
+#ifdef _WIN32
+    return (error_code == WSAEWOULDBLOCK);
+#else
+    return (error_code == EAGAIN || error_code == EWOULDBLOCK);
+#endif
+}
+
 int net_has_urgent_data(socket_t sock)
 {
 #ifdef _WIN32

@@ -308,7 +308,7 @@ def test_abor_command():
         
         # Create large test file
         test_filename = f"test_abor_{random_string()}.bin"
-        test_data = generate_test_data(5000000)  # 5MB
+        test_data = generate_test_data(50000000)  # 50MB
         
         with tempfile.NamedTemporaryFile(delete=False) as tmp:
             tmp.write(test_data)
@@ -413,12 +413,12 @@ def test_concurrent_clients():
     
     # Start multiple clients
     threads = []
-    num_clients = 10  # Increased from 5 to 10 for more concurrency
+    num_clients = 50  # Large concurrency
     for i in range(num_clients):
         t = threading.Thread(target=client_thread, args=(i,))
         t.start()
         threads.append(t)
-        time.sleep(0.1)  # Stagger thread starts slightly
+        # time.sleep(0.1)  # Stagger thread starts slightly
     
     # Wait for all threads
     for t in threads:
@@ -430,8 +430,9 @@ def test_concurrent_clients():
         results.add_result(f"Concurrent clients ({num_clients})", True)
     else:
         failed_clients = [r[0] for r in thread_results if not r[1]]
-        results.add_result(f"Concurrent clients ({num_clients})", False, 
-                         f"Failed clients: {failed_clients}")
+        failed_reasons = [r[2] for r in thread_results if not r[1] and len(r) > 2]
+        results.add_result(f"Concurrent clients ({num_clients})", False,
+                           f"Failed clients ({len(failed_clients)}): {failed_clients}, Reasons: {failed_reasons}")
 
 # ============================================================================
 # Test 8: File Locking
