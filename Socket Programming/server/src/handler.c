@@ -790,7 +790,7 @@ int cmd_handle_stor(cmd_handler_context_t context, const proto_command_t *cmd)
 
     int response = -1;
     int lock_acquired = 0;
-    int data_connection_open = 0;
+    int data_connection_opened = 0;
 
     // Use do-while(0) for structured error handling
     do
@@ -875,7 +875,7 @@ int cmd_handle_stor(cmd_handler_context_t context, const proto_command_t *cmd)
                                              "Can't open data connection");
             break;
         }
-        data_connection_open = 1;
+        data_connection_opened = 1;
 
         // Start transfer thread, clear restart offset
         session_clear_restart_offset(session);
@@ -902,10 +902,10 @@ int cmd_handle_stor(cmd_handler_context_t context, const proto_command_t *cmd)
         // File lock will be released by the transfer thread
         response = 0;
         lock_acquired = 0;        // Don't release lock here, transfer thread will do it
-        data_connection_open = 0; // Don't close data connection here
+        data_connection_opened = 0; // Don't close data connection here
     } while (0);
 
-    if (data_connection_open)
+    if (data_connection_opened)
     {
         session_close_data_connection(session);
     }
@@ -958,7 +958,7 @@ int cmd_handle_appe(cmd_handler_context_t context, const proto_command_t *cmd)
 
     int response = -1;
     int lock_acquired = 0;
-    int data_connection_open = 0;
+    int data_connection_opened = 0;
 
     // Use do-while(0) for structured error handling
     do
@@ -1019,7 +1019,7 @@ int cmd_handle_appe(cmd_handler_context_t context, const proto_command_t *cmd)
                                              "Can't open data connection");
             break;
         }
-        data_connection_open = 1;
+        data_connection_opened = 1;
 
         // Prepare transfer parameters
         transfer_params_t params;
@@ -1043,10 +1043,10 @@ int cmd_handle_appe(cmd_handler_context_t context, const proto_command_t *cmd)
         // File lock will be released by the transfer thread
         response = 0;
         lock_acquired = 0;        // Don't release lock here, transfer thread will do it
-        data_connection_open = 0; // Don't close data connection here
+        data_connection_opened = 0; // Don't close data connection here
     } while (0);
 
-    if (data_connection_open)
+    if (data_connection_opened)
     {
         session_close_data_connection(session);
     }
