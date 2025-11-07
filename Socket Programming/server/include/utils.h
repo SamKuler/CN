@@ -61,4 +61,14 @@ long long lf_to_crlf(const char *input_buffer, long long input_len, char *output
  */
 int string_to_hex(const char *input, char *output_buffer, size_t buffer_size);
 
+/**
+ * @brief Cross-platform millisecond sleep function.
+ *
+ * On Windows, uses Sleep().
+ * On POSIX systems, uses usleep().
+ *
+ * @param milliseconds The number of milliseconds to sleep.
+ */
+void sleep_ms(unsigned int milliseconds);
+
 #endif

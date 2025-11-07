@@ -2,6 +2,12 @@
 #include <ctype.h>
 #include <stdio.h>
 
+#ifdef _WIN32
+#include <windows.h>
+#else
+#include <unistd.h>
+#endif
+
 void get_timestamp(char *buffer, size_t size)
 {
     time_t now = time(NULL);
@@ -53,22 +59,25 @@ long long crlf_to_lf(const char *input_buffer, long long input_len, char *output
         if (input_buffer[i] == '\r')
         {
             // Check for CRLF sequence
-            if (i + 1 < input_len && input_buffer[i+1] == '\n')
+            if (i + 1 < input_len && input_buffer[i + 1] == '\n')
             {
-                if (write_idx + 1 > output_size) return -1; // Output buffer too small
+                if (write_idx + 1 > output_size)
+                    return -1; // Output buffer too small
                 output_buffer[write_idx++] = '\n';
                 i++; // Skip next character (LF)
             }
             else
             {
                 // Lone CR, treat as regular character
-                if (write_idx + 1 > output_size) return -1; // Output buffer too small
+                if (write_idx + 1 > output_size)
+                    return -1; // Output buffer too small
                 output_buffer[write_idx++] = input_buffer[i];
             }
         }
         else
         {
-            if (write_idx + 1 > output_size) return -1; // Output buffer too small
+            if (write_idx + 1 > output_size)
+                return -1; // Output buffer too small
             output_buffer[write_idx++] = input_buffer[i];
         }
     }
@@ -85,13 +94,15 @@ long long lf_to_crlf(const char *input_buffer, long long input_len, char *output
     {
         if (input_buffer[i] == '\n')
         {
-            if (write_idx + 2 > output_size) return -1; // Output buffer too small
+            if (write_idx + 2 > output_size)
+                return -1; // Output buffer too small
             output_buffer[write_idx++] = '\r';
             output_buffer[write_idx++] = '\n';
         }
         else
         {
-            if (write_idx + 1 > output_size) return -1; // Output buffer too small
+            if (write_idx + 1 > output_size)
+                return -1; // Output buffer too small
             output_buffer[write_idx++] = input_buffer[i];
         }
     }
@@ -120,4 +131,13 @@ int string_to_hex(const char *input, char *output_buffer, size_t buffer_size)
         output_buffer[hex_len] = '\0';
 
     return 0;
+}
+
+void sleep_ms(unsigned int milliseconds)
+{
+#ifdef _WIN32
+    Sleep(milliseconds);
+#else
+    usleep(milliseconds * 1000);
+#endif
 }
