@@ -42,6 +42,14 @@ transfer_status_t transfer_send_file(session_t *session, const char *filepath, l
         return TRANSFER_STATUS_INTERNAL_ERROR;
     }
 
+    // Verify data socket is valid
+    if (session->data_socket == INVALID_SOCKET_T)
+    {
+        LOG_ERROR("Data socket is not open for SEND transfer (data_mode=%d, client=%s:%u)",
+                  session->data_mode, session->client_ip, session->client_port);
+        return TRANSFER_STATUS_CONN_ERROR;
+    }
+
     long long file_size = fs_get_file_size(filepath);
     if (file_size < 0)
     {
@@ -149,6 +157,14 @@ transfer_status_t transfer_receive_file(session_t *session, const char *filepath
         return TRANSFER_STATUS_INTERNAL_ERROR;
     }
 
+    // Verify data socket is valid
+    if (session->data_socket == INVALID_SOCKET_T)
+    {
+        LOG_ERROR("Data socket is not open for RECEIVE transfer (data_mode=%d, client=%s:%u)",
+                  session->data_mode, session->client_ip, session->client_port);
+        return TRANSFER_STATUS_CONN_ERROR;
+    }
+
     char *buffer = malloc(TRANSFER_BUFFER_SIZE);
     if (!buffer)
     {
@@ -244,6 +260,13 @@ transfer_status_t transfer_send_file_ascii(session_t *session, const char *filep
     {
         LOG_ERROR("Invalid parameters for transfer_send_file_ascii");
         return TRANSFER_STATUS_INTERNAL_ERROR;
+    }
+
+    // Verify data socket is valid
+    if (session->data_socket == INVALID_SOCKET_T)
+    {
+        LOG_ERROR("Data socket is not open for transfer");
+        return TRANSFER_STATUS_CONN_ERROR;
     }
 
     long long file_size = fs_get_file_size(filepath);
@@ -363,6 +386,13 @@ transfer_status_t transfer_receive_file_ascii(session_t *session, const char *fi
     {
         LOG_ERROR("Invalid parameters for transfer_receive_file_ascii");
         return TRANSFER_STATUS_INTERNAL_ERROR;
+    }
+
+    // Verify data socket is valid
+    if (session->data_socket == INVALID_SOCKET_T)
+    {
+        LOG_ERROR("Data socket is not open for transfer");
+        return TRANSFER_STATUS_CONN_ERROR;
     }
 
     char *read_buffer = malloc(TRANSFER_BUFFER_SIZE);
@@ -662,6 +692,13 @@ transfer_status_t transfer_send_list(session_t *session, const char *path)
     {
         LOG_ERROR("Invalid parameters for transfer_send_list");
         return TRANSFER_STATUS_INTERNAL_ERROR;
+    }
+
+    // Verify data socket is valid
+    if (session->data_socket == INVALID_SOCKET_T)
+    {
+        LOG_ERROR("Data socket is not open for transfer");
+        return TRANSFER_STATUS_CONN_ERROR;
     }
 
     if (fs_is_directory(path))
