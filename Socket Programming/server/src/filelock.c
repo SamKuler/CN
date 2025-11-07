@@ -145,6 +145,37 @@ int file_lock_acquire_shared(const char *path)
     return 0;
 }
 
+int file_lock_try_acquire_shared(const char *path)
+{
+    if (!file_lock_path_valid(path))
+    {
+        return -1;
+    }
+
+    pthread_mutex_lock(&g_file_lock_mutex);
+
+    file_lock_entry_t *entry = file_lock_get_or_create(path);
+    if (!entry)
+    {
+        pthread_mutex_unlock(&g_file_lock_mutex);
+        return -1;
+    }
+
+    // Check if lock is available (no writers and no waiting writers)
+    if (entry->writers > 0 || entry->waiting_writers > 0)
+    {
+        // Lock is busy, return immediately
+        pthread_mutex_unlock(&g_file_lock_mutex);
+        return -1;
+    }
+
+    // Lock is available, acquire it
+    entry->readers++;
+
+    pthread_mutex_unlock(&g_file_lock_mutex);
+    return 0;
+}
+
 int file_lock_acquire_exclusive(const char *path)
 {
     if (!file_lock_path_valid(path))
@@ -169,6 +200,37 @@ int file_lock_acquire_exclusive(const char *path)
     }
 
     entry->waiting_writers--;
+    entry->writers = 1;
+
+    pthread_mutex_unlock(&g_file_lock_mutex);
+    return 0;
+}
+
+int file_lock_try_acquire_exclusive(const char *path)
+{
+    if (!file_lock_path_valid(path))
+    {
+        return -1;
+    }
+
+    pthread_mutex_lock(&g_file_lock_mutex);
+
+    file_lock_entry_t *entry = file_lock_get_or_create(path);
+    if (!entry)
+    {
+        pthread_mutex_unlock(&g_file_lock_mutex);
+        return -1;
+    }
+
+    // Check if lock is available (no readers and no writers)
+    if (entry->writers > 0 || entry->readers > 0)
+    {
+        // Lock is busy, return immediately
+        pthread_mutex_unlock(&g_file_lock_mutex);
+        return -1;
+    }
+
+    // Lock is available, acquire it
     entry->writers = 1;
 
     pthread_mutex_unlock(&g_file_lock_mutex);

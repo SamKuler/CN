@@ -17,6 +17,16 @@
 int file_lock_acquire_shared(const char *path);
 
 /**
+ * Try to acquire a shared (read) lock without blocking.
+ *
+ * If the lock cannot be acquired immediately, it returns immediately with an error.
+ *
+ * @param path Absolute filesystem path to lock.
+ * @return 0 on success, -1 on error.
+ */
+int file_lock_try_acquire_shared(const char *path);
+
+/**
  * @brief Acquire an exclusive (write) lock for the specified absolute path.
  *
  * Only a single writer may hold the lock, and writers have priority over new
@@ -26,6 +36,17 @@ int file_lock_acquire_shared(const char *path);
  * @return 0 on success, -1 on error.
  */
 int file_lock_acquire_exclusive(const char *path);
+
+/**
+ * @brief Try to acquire an exclusive (write) lock without blocking.
+ *
+ * This is a non-blocking version of file_lock_acquire_exclusive(). If the
+ * lock cannot be acquired immediately, it returns immediately with an error.
+ *
+ * @param path Absolute filesystem path to lock.
+ * @return 0 on success (lock acquired), -1 if lock is busy or on error.
+ */
+int file_lock_try_acquire_exclusive(const char *path);
 
 /**
  * @brief Release a previously acquired shared (read) lock.

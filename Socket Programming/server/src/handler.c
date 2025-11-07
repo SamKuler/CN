@@ -607,6 +607,13 @@ int cmd_handle_retr(cmd_handler_context_t context, const proto_command_t *cmd)
                                      "Syntax error in parameters");
     }
 
+    // Check if data transfer mode is set (PASV or PORT must be called first)
+    if (session->data_mode == SESSION_DATA_MODE_NONE)
+    {
+        return session_send_response(session, PROTO_RESP_BAD_COMMAND_SEQUENCE,
+                                     "Use PASV or PORT first");
+    }
+
     // Check path access permission (READ required for downloading)
     if (!session_check_path_access(session, cmd->argument, AUTH_PERM_READ))
     {
@@ -640,16 +647,9 @@ int cmd_handle_retr(cmd_handler_context_t context, const proto_command_t *cmd)
     // Use do-while(0) for structured error handling
     do
     {
-
-        // Check if file is currently locked exclusively before attempting to acquire shared lock
-        if (file_lock_is_exclusive_locked(abs_path))
-        {
-            response = session_send_response(session, PROTO_RESP_FILE_ACTION_ABORTED,
-                                             "File is currently being written to, please try again later");
-            break;
-        }
-
-        if (file_lock_acquire_shared(abs_path) != 0)
+        // Try to acquire shared lock without blocking
+        // If file is being written, fail immediately so client can retry
+        if (file_lock_try_acquire_shared(abs_path) != 0)
         {
             response = session_send_response(session, PROTO_RESP_FILE_ACTION_ABORTED,
                                              "File is busy, try again later");
@@ -763,6 +763,13 @@ int cmd_handle_stor(cmd_handler_context_t context, const proto_command_t *cmd)
                                      "Syntax error in parameters");
     }
 
+    // Check if data transfer mode is set (PASV or PORT must be called first)
+    if (session->data_mode == SESSION_DATA_MODE_NONE)
+    {
+        return session_send_response(session, PROTO_RESP_BAD_COMMAND_SEQUENCE,
+                                     "Use PASV or PORT first");
+    }
+
     // Check path access permission (WRITE required for uploading)
     if (!session_check_path_access(session, cmd->argument, AUTH_PERM_WRITE))
     {
@@ -795,25 +802,9 @@ int cmd_handle_stor(cmd_handler_context_t context, const proto_command_t *cmd)
     // Use do-while(0) for structured error handling
     do
     {
-        // Check if file is currently locked before attempting to acquire exclusive lock
-        int shared_locks = file_lock_get_shared_lock_count(abs_path);
-        int exclusive_locked = file_lock_is_exclusive_locked(abs_path);
-        if (shared_locks > 0 || exclusive_locked)
-        {
-            char msg[PROTO_MAX_RESPONSE_LINE];
-            if (exclusive_locked)
-            {
-                snprintf(msg, sizeof(msg), "File is currently being written to (%d readers waiting), please try again later", shared_locks);
-            }
-            else
-            {
-                snprintf(msg, sizeof(msg), "File is currently being read by %d client(s), please try again later", shared_locks);
-            }
-            response = session_send_response(session, PROTO_RESP_FILE_ACTION_ABORTED, msg);
-            break;
-        }
-
-        if (file_lock_acquire_exclusive(abs_path) != 0)
+        // Try to acquire exclusive lock without blocking
+        // If file is being read/written, fail immediately so client can retry
+        if (file_lock_try_acquire_exclusive(abs_path) != 0)
         {
             response = session_send_response(session, PROTO_RESP_FILE_ACTION_ABORTED,
                                              "File is busy, try again later");
@@ -901,7 +892,7 @@ int cmd_handle_stor(cmd_handler_context_t context, const proto_command_t *cmd)
         // Data connection will be closed by the transfer thread
         // File lock will be released by the transfer thread
         response = 0;
-        lock_acquired = 0;        // Don't release lock here, transfer thread will do it
+        lock_acquired = 0;          // Don't release lock here, transfer thread will do it
         data_connection_opened = 0; // Don't close data connection here
     } while (0);
 
@@ -934,6 +925,13 @@ int cmd_handle_appe(cmd_handler_context_t context, const proto_command_t *cmd)
                                      "Syntax error in parameters");
     }
 
+    // Check if data transfer mode is set (PASV or PORT must be called first)
+    if (session->data_mode == SESSION_DATA_MODE_NONE)
+    {
+        return session_send_response(session, PROTO_RESP_BAD_COMMAND_SEQUENCE,
+                                     "Use PASV or PORT first");
+    }
+
     // Check path access permission (WRITE required for uploading)
     if (!session_check_path_access(session, cmd->argument, AUTH_PERM_WRITE))
     {
@@ -963,25 +961,9 @@ int cmd_handle_appe(cmd_handler_context_t context, const proto_command_t *cmd)
     // Use do-while(0) for structured error handling
     do
     {
-        // Check if file is currently locked before attempting to acquire exclusive lock
-        int shared_locks = file_lock_get_shared_lock_count(abs_path);
-        int exclusive_locked = file_lock_is_exclusive_locked(abs_path);
-        if (shared_locks > 0 || exclusive_locked)
-        {
-            char msg[PROTO_MAX_RESPONSE_LINE];
-            if (exclusive_locked)
-            {
-                snprintf(msg, sizeof(msg), "File is currently being written to (%d readers waiting), please try again later", shared_locks);
-            }
-            else
-            {
-                snprintf(msg, sizeof(msg), "File is currently being read by %d client(s), please try again later", shared_locks);
-            }
-            response = session_send_response(session, PROTO_RESP_FILE_ACTION_ABORTED, msg);
-            break;
-        }
-
-        if (file_lock_acquire_exclusive(abs_path) != 0)
+        // Try to acquire exclusive lock without blocking
+        // If file is being read/written, fail immediately so client can retry
+        if (file_lock_try_acquire_exclusive(abs_path) != 0)
         {
             response = session_send_response(session, PROTO_RESP_FILE_ACTION_ABORTED,
                                              "File is busy, try again later");
@@ -1042,7 +1024,7 @@ int cmd_handle_appe(cmd_handler_context_t context, const proto_command_t *cmd)
         // Data connection will be closed by the transfer thread
         // File lock will be released by the transfer thread
         response = 0;
-        lock_acquired = 0;        // Don't release lock here, transfer thread will do it
+        lock_acquired = 0;          // Don't release lock here, transfer thread will do it
         data_connection_opened = 0; // Don't close data connection here
     } while (0);
 
@@ -1106,6 +1088,13 @@ int cmd_handle_list(cmd_handler_context_t context, const proto_command_t *cmd)
     {
         return session_send_response(session, PROTO_RESP_NOT_LOGGED_IN,
                                      "Please login with USER and PASS");
+    }
+
+    // Check if data transfer mode is set (PASV or PORT must be called first)
+    if (session->data_mode == SESSION_DATA_MODE_NONE)
+    {
+        return session_send_response(session, PROTO_RESP_BAD_COMMAND_SEQUENCE,
+                                     "Use PASV or PORT first");
     }
 
     // Get path argument, default to current directory
@@ -1201,6 +1190,13 @@ int cmd_handle_nlst(cmd_handler_context_t context, const proto_command_t *cmd)
     {
         return session_send_response(session, PROTO_RESP_NOT_LOGGED_IN,
                                      "Please login with USER and PASS");
+    }
+
+    // Check if data transfer mode is set (PASV or PORT must be called first)
+    if (session->data_mode == SESSION_DATA_MODE_NONE)
+    {
+        return session_send_response(session, PROTO_RESP_BAD_COMMAND_SEQUENCE,
+                                     "Use PASV or PORT first");
     }
 
     // Get path argument, default to current directory
@@ -1461,26 +1457,9 @@ int cmd_handle_rnfr(cmd_handler_context_t context, const proto_command_t *cmd)
                                      "File or directory not found");
     }
 
-    // Check if file is currently locked before attempting to acquire exclusive lock
-    int shared_locks = file_lock_get_shared_lock_count(abs_path);
-    int exclusive_locked = file_lock_is_exclusive_locked(abs_path);
-    if (shared_locks > 0 || exclusive_locked)
-    {
-        char msg[PROTO_MAX_RESPONSE_LINE];
-        if (exclusive_locked)
-        {
-            snprintf(msg, sizeof(msg), "File is currently being written to, please try again later");
-        }
-        else
-        {
-            snprintf(msg, sizeof(msg), "File is currently being read by %d client(s), please try again later", shared_locks);
-        }
-        return session_send_response(session, PROTO_RESP_FILE_ACTION_ABORTED, msg);
-    }
-
-    // Try to acquire exclusive lock to ensure file is not in use
+    // Try to acquire exclusive lock without blocking to check if file is busy
     // We acquire and immediately release it just to check availability
-    if (file_lock_acquire_exclusive(abs_path) != 0)
+    if (file_lock_try_acquire_exclusive(abs_path) != 0)
     {
         return session_send_response(session, PROTO_RESP_FILE_ACTION_ABORTED,
                                      "File is busy, try again later");
@@ -1569,26 +1548,9 @@ int cmd_handle_rnto(cmd_handler_context_t context, const proto_command_t *cmd)
     // Use do-while(0) for structured error handling
     do
     {
-        // Check if source file is currently locked before attempting to acquire exclusive lock
-        int shared_locks = file_lock_get_shared_lock_count(from_path);
-        int exclusive_locked = file_lock_is_exclusive_locked(from_path);
-        if (shared_locks > 0 || exclusive_locked)
-        {
-            char msg[PROTO_MAX_RESPONSE_LINE];
-            if (exclusive_locked)
-            {
-                snprintf(msg, sizeof(msg), "Source file is currently being written to, please try again later");
-            }
-            else
-            {
-                snprintf(msg, sizeof(msg), "Source file is currently being read by %d client(s), please try again later", shared_locks);
-            }
-            response = session_send_response(session, PROTO_RESP_FILE_ACTION_ABORTED, msg);
-            break;
-        }
-
-        // Acquire exclusive lock on source file
-        if (file_lock_acquire_exclusive(from_path) != 0)
+        // Try to acquire exclusive lock on source file without blocking
+        // If file is being read/written, fail immediately so client can retry
+        if (file_lock_try_acquire_exclusive(from_path) != 0)
         {
             response = session_send_response(session, PROTO_RESP_FILE_ACTION_ABORTED,
                                              "File is busy, try again later");
@@ -1688,26 +1650,9 @@ int cmd_handle_dele(cmd_handler_context_t context, const proto_command_t *cmd)
     // Use do-while(0) for structured error handling
     do
     {
-        // Check if file is currently locked before attempting to acquire exclusive lock
-        int shared_locks = file_lock_get_shared_lock_count(abs_path);
-        int exclusive_locked = file_lock_is_exclusive_locked(abs_path);
-        if (shared_locks > 0 || exclusive_locked)
-        {
-            char msg[PROTO_MAX_RESPONSE_LINE];
-            if (exclusive_locked)
-            {
-                snprintf(msg, sizeof(msg), "File is currently being written to, please try again later");
-            }
-            else
-            {
-                snprintf(msg, sizeof(msg), "File is currently being read by %d client(s), please try again later", shared_locks);
-            }
-            response = session_send_response(session, PROTO_RESP_FILE_ACTION_ABORTED, msg);
-            break;
-        }
-
-        // Acquire exclusive lock to ensure file is not in use
-        if (file_lock_acquire_exclusive(abs_path) != 0)
+        // Try to acquire exclusive lock without blocking
+        // If file is being read/written, fail immediately so client can retry
+        if (file_lock_try_acquire_exclusive(abs_path) != 0)
         {
             response = session_send_response(session, PROTO_RESP_FILE_ACTION_ABORTED,
                                              "File is busy, try again later");
