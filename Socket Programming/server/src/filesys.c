@@ -538,8 +538,6 @@ const char *fs_extract_filename(const char *path)
     const char *backslash = strrchr(path, '\\');
     if (!filename || (backslash && backslash > filename)) // use the rightmost separator
         filename = backslash;
-#else
-    const char *filename = strrchr(path, '/');
 #endif
 
     if (filename)
