@@ -1,6 +1,17 @@
+/**
+ * @file utils.c
+ * @brief Utility functions
+ * @version 0.1
+ * @date 2025-11-07
+ */
+
+#define _POSIX_C_SOURCE 200809L
 #include "utils.h"
+
 #include <ctype.h>
 #include <stdio.h>
+#include <string.h>
+#include <time.h>
 
 #ifdef _WIN32
 #include <windows.h>
@@ -138,6 +149,9 @@ void sleep_ms(unsigned int milliseconds)
 #ifdef _WIN32
     Sleep(milliseconds);
 #else
-    usleep(milliseconds * 1000);
+    struct timespec ts;
+    ts.tv_sec = milliseconds / 1000;
+    ts.tv_nsec = (milliseconds % 1000) * 1000000L;
+    nanosleep(&ts, NULL);
 #endif
 }

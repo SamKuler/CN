@@ -1,8 +1,13 @@
+/**
+ * @file utils.h
+ * @brief Utility functions
+ * @version 0.1
+ * @date 2025-11-07
+ */
 #ifndef UTILS_H
 #define UTILS_H
 
-#include <time.h>
-#include <string.h>
+#include <stddef.h>
 
 /**
  * @brief Get timestamp string with format %Y-%m-%d %H:%M:%S
