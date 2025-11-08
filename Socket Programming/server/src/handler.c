@@ -1712,8 +1712,9 @@ int cmd_handle_abor(cmd_handler_context_t context, const proto_command_t *cmd)
     // Close data connection to unblock any blocking I/O
     session_close_data_connection(session);
 
-    // The transfer thread will detect abort flag and clean up and send final response
-    return 0;
+    // Send 426 response to indicate abnormal termination
+    return session_send_response(session, PROTO_RESP_CONN_CLOSED,
+                                 "Data connection closed; transfer aborted");
 }
 
 // Informational commands
