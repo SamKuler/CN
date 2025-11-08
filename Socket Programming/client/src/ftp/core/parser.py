@@ -3,55 +3,71 @@ Response parser for FTP protocol
 Handles parsing of server responses
 """
 
+import re
+
 
 class FTPResponse:
     """Represents an FTP server response"""
     
-    def __init__(self, code, message, lines=None):
+    def __init__(self, code, message, raw_lines=None):
         """
         Initialize FTP response
         
         Args:
             code: Response code (e.g., 220, 230)
             message: Response message
-            lines: All response lines for multiline responses
+            raw_lines: Raw response lines from server
         """
         self.code = code
         self.message = message
-        self.lines = lines or [f"{code} {message}"]
-        
-    @property
-    def is_success(self):
-        """Check if response indicates success (2xx or 3xx)"""
-        return self.code // 100 in (2, 3)
-    
-    @property
-    def is_error(self):
-        """Check if response indicates error (4xx or 5xx)"""
-        return self.code // 100 in (4, 5)
+        self.raw_lines = raw_lines or []
     
     @property
     def is_preliminary(self):
         """Check if response is preliminary (1xx)"""
-        return self.code // 100 == 1
+        return 100 <= self.code < 200
     
+    @property
+    def is_success(self):
+        """Check if response indicates success (2xx)"""
+        return 200 <= self.code < 300
+    
+    @property
+    def is_intermediate(self):
+        """Check if response is intermediate (3xx)"""
+        return 300 <= self.code < 400
+    
+    @property
+    def is_error(self):
+        """Check if response is error (4xx or 5xx)"""
+        return self.code >= 400
+    
+    @property
+    def is_transient_error(self):
+        """Check if response is transient error (4xx)"""
+        return 400 <= self.code < 500
+    
+    @property
+    def is_permanent_error(self):
+        """Check if response is permanent error (5xx)"""
+        return 500 <= self.code < 600
+        
     def __str__(self):
+        """String representation"""
         return f"{self.code} {self.message}"
-    
+
     def __repr__(self):
-        return f"FTPResponse({self.code}, {self.message!r})"
+        """Debug representation"""
+        return f"FTPResponse(code={self.code}, message={self.message!r})"
 
 
 class ResponseParser:
-    """
-    Parses FTP server responses
-    or formats command arguments
-    """
+    """Parser for FTP server responses"""
     
     @staticmethod
     def parse(lines):
         """
-        Parse response lines into FTPResponse object
+        Parse FTP response lines
         
         Args:
             lines: List of response lines or single line string
@@ -63,28 +79,34 @@ class ResponseParser:
             lines = [lines]
         
         if not lines:
-            raise ValueError("Empty response")
+            return FTPResponse(0, "No response", [])
         
+        # First line contains the code
         first_line = lines[0]
         
-        # Extract code and message from first line
-        try:
-            code = int(first_line[:3])
+        # Extract response code (first 3 digits)
+        code_match = re.match(r'^(\d{3})', first_line)
+        if not code_match:
+            return FTPResponse(0, first_line, lines)
+        
+        code = int(code_match.group(1))
+        
+        # Handle multiline responses
+        if len(lines) == 1:
+            # Single line response
             message = first_line[4:] if len(first_line) > 4 else ""
-        except (ValueError, IndexError):
-            raise ValueError(f"Invalid response format: {first_line}")
-        
-        # For multiline responses, combine all messages
-        if len(lines) > 1:
-            all_messages = [message]
-            for line in lines[1:]:
-                if len(line) > 4:
-                    all_messages.append(line[4:])
+        else:
+            # Multiline response - combine all lines
+            message_parts = []
+            for line in lines:
+                # Skip the code prefix
+                if line.startswith(str(code)):
+                    message_parts.append(line[4:])
                 else:
-                    all_messages.append(line)
-            message = '\n'.join(all_messages)
+                    message_parts.append(line)
+            message = '\n'.join(message_parts)
         
-        return FTPResponse(code, message, lines)
+        return FTPResponse(code, message.strip(), lines)
     
     @staticmethod
     def parse_pasv_response(response):
@@ -92,33 +114,28 @@ class ResponseParser:
         Parse PASV response to extract host and port
         
         Args:
-            response: FTPResponse from PASV command
+            response: FTPResponse object from PASV command
             
         Returns:
             tuple: (host, port)
+            
+        Example:
+            "227 Entering Passive Mode (192,168,1,1,234,56)"
+            Returns: ("192.168.1.1", 60024)  # 234*256 + 56
         """
-        # PASV response format: 227 Entering Passive Mode (h1,h2,h3,h4,p1,p2)
-        message = response.message
+        # Find pattern (h1,h2,h3,h4,p1,p2)
+        pattern = r'\((\d+),(\d+),(\d+),(\d+),(\d+),(\d+)\)'
+        match = re.search(pattern, response.message)
         
-        # Find the parentheses
-        start = message.find('(')
-        end = message.find(')')
+        if not match:
+            raise ValueError(f"Invalid PASV response: {response.message}")
         
-        if start == -1 or end == -1:
-            raise ValueError(f"Invalid PASV response: {message}")
+        h1, h2, h3, h4, p1, p2 = map(int, match.groups())
         
-        # Extract numbers
-        numbers = message[start+1:end].split(',')
-        if len(numbers) != 6:
-            raise ValueError(f"Invalid PASV response format: {message}")
+        host = f"{h1}.{h2}.{h3}.{h4}"
+        port = p1 * 256 + p2
         
-        try:
-            h1, h2, h3, h4, p1, p2 = map(int, numbers)
-            host = f"{h1}.{h2}.{h3}.{h4}"
-            port = p1 * 256 + p2
-            return host, port
-        except ValueError:
-            raise ValueError(f"Invalid PASV response numbers: {message}")
+        return host, port
     
     @staticmethod
     def format_port_command(host, port):
@@ -126,19 +143,67 @@ class ResponseParser:
         Format PORT command argument
         
         Args:
-            host: IP address
+            host: IP address string (e.g., "192.168.1.1")
             port: Port number
             
         Returns:
-            str: Formatted PORT command argument
+            str: Formatted argument (e.g., "192,168,1,1,234,56")
+            
+        Example:
+            format_port_command("192.168.1.1", 60024)
+            Returns: "192,168,1,1,234,56"
         """
-        # Convert host to h1,h2,h3,h4
-        host_parts = host.split('.')
-        if len(host_parts) != 4:
-            raise ValueError(f"Invalid host address: {host}")
+        # Split host into octets
+        octets = host.split('.')
+        if len(octets) != 4:
+            raise ValueError(f"Invalid IP address: {host}")
         
-        # Convert port to p1,p2
+        # Calculate port bytes
         p1 = port // 256
         p2 = port % 256
         
-        return ','.join(host_parts + [str(p1), str(p2)])
+        return f"{octets[0]},{octets[1]},{octets[2]},{octets[3]},{p1},{p2}"
+    
+    @staticmethod
+    def parse_size_response(response):
+        """
+        Parse SIZE response to extract file size
+        
+        Args:
+            response: FTPResponse object from SIZE command
+            
+        Returns:
+            int: File size in bytes
+        """
+        if not response.is_success:
+            return None
+        
+        try:
+            return int(response.message.strip())
+        except ValueError:
+            return None
+    
+    @staticmethod
+    def parse_pwd_response(response):
+        """
+        Parse PWD response to extract current directory
+        
+        Args:
+            response: FTPResponse object from PWD command
+            
+        Returns:
+            str: Current directory path
+            
+        Example:
+            '257 "/home/user" is current directory'
+            Returns: "/home/user"
+        """
+        if not response.is_success:
+            return None
+        
+        # Find quoted path
+        match = re.search(r'"([^"]+)"', response.message)
+        if match:
+            return match.group(1)
+        
+        return None
