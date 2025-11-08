@@ -28,8 +28,8 @@ class TransferStatus(Enum):
 
 class Transfer:
     """Represents a single file transfer"""
-    
-    def __init__(self, transfer_id, transfer_type, remote_path, local_path=None, 
+
+    def __init__(self, transfer_id, transfer_type, remote_path, local_path=None,
                  data=None, offset=0, total_size=None):
         """
         Initialize transfer
@@ -50,38 +50,38 @@ class Transfer:
         self.data = data
         self.offset = offset
         self.total_size = total_size
-        
+
         self.status = TransferStatus.PENDING
         self.bytes_transferred = offset
         self.start_time = None
         self.end_time = None
         self.error = None
-        
+
         self.thread = None
         self.pause_event = threading.Event()
         self.pause_event.set()  # Not paused initially
         self.cancel_event = threading.Event()
-        
+
         self.callback = None
         self.progress_callback = None
-    
+
     @property
     def is_active(self):
         """Check if transfer is active (running or paused)"""
         return self.status in (TransferStatus.RUNNING, TransferStatus.PAUSED)
-    
+
     @property
     def is_complete(self):
         """Check if transfer is complete"""
         return self.status in (TransferStatus.COMPLETED, TransferStatus.FAILED, TransferStatus.CANCELLED)
-    
+
     @property
     def progress_percent(self):
         """Get transfer progress percentage"""
         if self.total_size and self.total_size > 0:
             return (self.bytes_transferred / self.total_size) * 100
         return 0
-    
+
     @property
     def speed(self):
         """Get transfer speed in bytes/second"""
@@ -90,19 +90,19 @@ class Transfer:
             if elapsed > 0:
                 return self.bytes_transferred / elapsed
         return 0
-    
+
     def pause(self):
         """Pause the transfer"""
         if self.status == TransferStatus.RUNNING:
             self.pause_event.clear()
             self.status = TransferStatus.PAUSED
-    
+
     def resume(self):
         """Resume the transfer"""
         if self.status == TransferStatus.PAUSED:
             self.pause_event.set()
             self.status = TransferStatus.RUNNING
-    
+
     def cancel(self):
         """Cancel the transfer"""
         self.cancel_event.set()
@@ -111,7 +111,7 @@ class Transfer:
 
 class TransferManager:
     """Manages multiple concurrent file transfers"""
-    
+
     def __init__(self, client, max_concurrent=None):
         """
         Initialize transfer manager
@@ -126,44 +126,44 @@ class TransferManager:
         self.transfers = {}  # transfer_id -> Transfer
         self.transfer_counter = 0
         self.transfer_lock = threading.Lock()
-        
+
         self.active_count = 0
         self.queue_condition = threading.Condition()
-    
+
     def _get_next_id(self):
         """Get next transfer ID"""
         with self.transfer_lock:
             self.transfer_counter += 1
             return self.transfer_counter
-    
+
     def _can_start_transfer(self):
         """Check if a new transfer can be started"""
         if self.max_concurrent is None:
             return True
         return self.active_count < self.max_concurrent
-    
+
     def _wait_for_slot(self):
         """Wait for an available transfer slot"""
         if self.max_concurrent is None:
             return
-        
+
         with self.queue_condition:
             while self.active_count >= self.max_concurrent:
                 self.queue_condition.wait()
-    
+
     def _acquire_slot(self):
         """Acquire a transfer slot"""
         with self.queue_condition:
             self.active_count += 1
-    
+
     def _release_slot(self):
         """Release a transfer slot"""
         with self.queue_condition:
             self.active_count -= 1
             self.queue_condition.notify()
-    
-    def start_download(self, filename, local_path=None, offset=0, 
-                      callback=None, progress_callback=None):
+
+    def start_download(self, filename, local_path=None, offset=0,
+                       callback=None, progress_callback=None):
         """
         Start downloading a file
         
@@ -177,9 +177,9 @@ class TransferManager:
         Returns:
             Transfer: Transfer object
         """
-        # Get file size for progress tracking
-        total_size = self.client.get_file_size(filename)
-        
+        # Do not issue SIZE here to avoid interfering with the control channel during RETR
+        total_size = None
+
         transfer_id = self._get_next_id()
         transfer = Transfer(
             transfer_id=transfer_id,
@@ -191,10 +191,10 @@ class TransferManager:
         )
         transfer.callback = callback
         transfer.progress_callback = progress_callback
-        
+
         with self.transfer_lock:
             self.transfers[transfer_id] = transfer
-        
+
         # Start transfer thread
         transfer.thread = threading.Thread(
             target=self._download_worker,
@@ -202,11 +202,11 @@ class TransferManager:
             daemon=True
         )
         transfer.thread.start()
-        
+
         return transfer
-    
+
     def start_upload(self, filename, data=None, local_path=None, offset=0,
-                    callback=None, progress_callback=None):
+                     callback=None, progress_callback=None):
         """
         Start uploading a file
         
@@ -227,7 +227,7 @@ class TransferManager:
             total_size = len(data)
         elif local_path and os.path.exists(local_path):
             total_size = os.path.getsize(local_path)
-        
+
         transfer_id = self._get_next_id()
         transfer = Transfer(
             transfer_id=transfer_id,
@@ -240,10 +240,10 @@ class TransferManager:
         )
         transfer.callback = callback
         transfer.progress_callback = progress_callback
-        
+
         with self.transfer_lock:
             self.transfers[transfer_id] = transfer
-        
+
         # Start transfer thread
         transfer.thread = threading.Thread(
             target=self._upload_worker,
@@ -251,11 +251,11 @@ class TransferManager:
             daemon=True
         )
         transfer.thread.start()
-        
+
         return transfer
-    
+
     def start_append(self, filename, data=None, local_path=None,
-                    callback=None, progress_callback=None):
+                     callback=None, progress_callback=None):
         """
         Start appending to a file
         
@@ -275,7 +275,7 @@ class TransferManager:
             total_size = len(data)
         elif local_path and os.path.exists(local_path):
             total_size = os.path.getsize(local_path)
-        
+
         transfer_id = self._get_next_id()
         transfer = Transfer(
             transfer_id=transfer_id,
@@ -287,10 +287,10 @@ class TransferManager:
         )
         transfer.callback = callback
         transfer.progress_callback = progress_callback
-        
+
         with self.transfer_lock:
             self.transfers[transfer_id] = transfer
-        
+
         # Start transfer thread
         transfer.thread = threading.Thread(
             target=self._append_worker,
@@ -298,68 +298,72 @@ class TransferManager:
             daemon=True
         )
         transfer.thread.start()
-        
+
         return transfer
-    
+
     def _download_worker(self, transfer):
         """Worker thread for downloading files"""
         self._wait_for_slot()
         self._acquire_slot()
-        
+
         try:
             transfer.status = TransferStatus.RUNNING
             transfer.start_time = time.time()
-            
-            # Connect data channel
-            self.client.data_conn.connect()
-            
+
+            # Connect data channel if not already connected
+            try:
+                if not (self.client.data_conn.connection and self.client.data_conn.connection.is_connected):
+                    self.client.data_conn.connect()
+            except Exception as e:
+                raise
+
             # Open file for writing
             mode = 'ab' if transfer.offset > 0 else 'wb'
             file_handle = None
-            
+
             if transfer.local_path:
                 file_handle = open(transfer.local_path, mode)
-            
+
             data_buffer = b''
             buffer_size = 8192
-            
+
             # Receive data
             while not transfer.cancel_event.is_set():
                 # Wait if paused
                 transfer.pause_event.wait()
-                
+
                 try:
                     chunk = self.client.data_conn.recv_data(buffer_size)
                     if not chunk:
                         break
-                    
+
                     if file_handle:
                         file_handle.write(chunk)
                     else:
                         data_buffer += chunk
-                    
+
                     transfer.bytes_transferred += len(chunk)
-                    
+
                     # Report progress
                     if transfer.progress_callback:
                         transfer.progress_callback(transfer.bytes_transferred, transfer.total_size)
-                        
+
                 except Exception as e:
                     transfer.error = str(e)
                     break
-            
+
             # Close file
             if file_handle:
                 file_handle.close()
-            
+
             # Close data connection
             self.client.data_conn.close()
-            
+
             # Get completion response
             lines = self.client.control_conn.recv_multiline()
             from .parser import ResponseParser
             final_response = ResponseParser.parse(lines)
-            
+
             # Update status
             if transfer.cancel_event.is_set():
                 transfer.status = TransferStatus.CANCELLED
@@ -377,36 +381,40 @@ class TransferManager:
                 transfer.error = str(final_response)
                 success = False
                 result = final_response
-            
+
             transfer.end_time = time.time()
-            
+
             # Call completion callback
             if transfer.callback:
                 transfer.callback(success, result)
-                
+
         except Exception as e:
             transfer.status = TransferStatus.FAILED
             transfer.error = str(e)
             transfer.end_time = time.time()
-            
+
             if transfer.callback:
                 transfer.callback(False, str(e))
-        
+
         finally:
             self._release_slot()
-    
+
     def _upload_worker(self, transfer):
         """Worker thread for uploading files"""
         self._wait_for_slot()
         self._acquire_slot()
-        
+
         try:
             transfer.status = TransferStatus.RUNNING
             transfer.start_time = time.time()
-            
-            # Connect data channel
-            self.client.data_conn.connect()
-            
+
+            # Connect data channel if not already connected
+            try:
+                if not (self.client.data_conn.connection and self.client.data_conn.connection.is_connected):
+                    self.client.data_conn.connect()
+            except Exception as e:
+                raise
+
             # Get data to send
             if transfer.data:
                 data_to_send = transfer.data[transfer.offset:]
@@ -417,33 +425,33 @@ class TransferManager:
                     data_to_send = f.read()
             else:
                 raise ValueError("No data or file specified for upload")
-            
+
             # Send data in chunks
             buffer_size = 8192
             offset = 0
-            
+
             while offset < len(data_to_send) and not transfer.cancel_event.is_set():
                 # Wait if paused
                 transfer.pause_event.wait()
-                
+
                 chunk = data_to_send[offset:offset + buffer_size]
                 self.client.data_conn.send_data(chunk)
-                
+
                 offset += len(chunk)
                 transfer.bytes_transferred = transfer.offset + offset
-                
+
                 # Report progress
                 if transfer.progress_callback:
                     transfer.progress_callback(transfer.bytes_transferred, transfer.total_size)
-            
+
             # Close data connection
             self.client.data_conn.close()
-            
+
             # Get completion response
             lines = self.client.control_conn.recv_multiline()
             from .parser import ResponseParser
             final_response = ResponseParser.parse(lines)
-            
+
             # Update status
             if transfer.cancel_event.is_set():
                 transfer.status = TransferStatus.CANCELLED
@@ -458,37 +466,41 @@ class TransferManager:
                 transfer.error = str(final_response)
                 success = False
                 result = final_response
-            
+
             transfer.end_time = time.time()
-            
+
             # Call completion callback
             if transfer.callback:
                 transfer.callback(success, result)
-                
+
         except Exception as e:
             transfer.status = TransferStatus.FAILED
             transfer.error = str(e)
             transfer.end_time = time.time()
-            
+
             if transfer.callback:
                 transfer.callback(False, str(e))
-        
+
         finally:
             self._release_slot()
-    
+
     def _append_worker(self, transfer):
         """Worker thread for appending to files"""
         # Similar to upload but uses APPE instead of STOR
         self._wait_for_slot()
         self._acquire_slot()
-        
+
         try:
             transfer.status = TransferStatus.RUNNING
             transfer.start_time = time.time()
-            
-            # Connect data channel
-            self.client.data_conn.connect()
-            
+
+            # Connect data channel if not already connected
+            try:
+                if not (self.client.data_conn.connection and self.client.data_conn.connection.is_connected):
+                    self.client.data_conn.connect()
+            except Exception as e:
+                raise
+
             # Get data to send
             if transfer.data:
                 data_to_send = transfer.data
@@ -497,33 +509,33 @@ class TransferManager:
                     data_to_send = f.read()
             else:
                 raise ValueError("No data or file specified for append")
-            
+
             # Send data in chunks
             buffer_size = 8192
             offset = 0
-            
+
             while offset < len(data_to_send) and not transfer.cancel_event.is_set():
                 # Wait if paused
                 transfer.pause_event.wait()
-                
+
                 chunk = data_to_send[offset:offset + buffer_size]
                 self.client.data_conn.send_data(chunk)
-                
+
                 offset += len(chunk)
                 transfer.bytes_transferred = offset
-                
+
                 # Report progress
                 if transfer.progress_callback:
                     transfer.progress_callback(transfer.bytes_transferred, transfer.total_size)
-            
+
             # Close data connection
             self.client.data_conn.close()
-            
+
             # Get completion response
             lines = self.client.control_conn.recv_multiline()
             from .parser import ResponseParser
             final_response = ResponseParser.parse(lines)
-            
+
             # Update status
             if transfer.cancel_event.is_set():
                 transfer.status = TransferStatus.CANCELLED
@@ -538,51 +550,51 @@ class TransferManager:
                 transfer.error = str(final_response)
                 success = False
                 result = final_response
-            
+
             transfer.end_time = time.time()
-            
+
             # Call completion callback
             if transfer.callback:
                 transfer.callback(success, result)
-                
+
         except Exception as e:
             transfer.status = TransferStatus.FAILED
             transfer.error = str(e)
             transfer.end_time = time.time()
-            
+
             if transfer.callback:
                 transfer.callback(False, str(e))
-        
+
         finally:
             self._release_slot()
-    
+
     def get_transfer(self, transfer_id):
         """Get transfer by ID"""
         with self.transfer_lock:
             return self.transfers.get(transfer_id)
-    
+
     def get_all_transfers(self):
         """Get all transfers"""
         with self.transfer_lock:
             return list(self.transfers.values())
-    
+
     def get_active_transfers(self):
         """Get all active transfers"""
         with self.transfer_lock:
             return [t for t in self.transfers.values() if t.is_active]
-    
+
     def pause_transfer(self, transfer_id):
         """Pause a transfer"""
         transfer = self.get_transfer(transfer_id)
         if transfer:
             transfer.pause()
-    
+
     def resume_transfer(self, transfer_id):
         """Resume a transfer"""
         transfer = self.get_transfer(transfer_id)
         if transfer:
             transfer.resume()
-    
+
     def cancel_transfer(self, transfer_id):
         """Cancel a transfer"""
         transfer = self.get_transfer(transfer_id)
@@ -594,18 +606,18 @@ class TransferManager:
                     self.client.abort_transfer()
                 except:
                     pass
-    
+
     def stop_all(self):
         """Stop all transfers"""
         with self.transfer_lock:
             for transfer in self.transfers.values():
                 if transfer.is_active:
                     transfer.cancel()
-        
+
         # Wait for all threads to finish
         with self.transfer_lock:
             threads = [t.thread for t in self.transfers.values() if t.thread]
-        
+
         for thread in threads:
             if thread and thread.is_alive():
                 thread.join(timeout=5)
