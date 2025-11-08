@@ -323,12 +323,14 @@ def test_abor_command():
             downloaded.extend(data)
             if len(downloaded) > 50000:  # After 50KB, send ABOR
                 ftp.abort()
+                ftp.voidresp()  # Clear response
                 raise Exception("Aborted by client")
         
         try:
             ftp.retrbinary(f'RETR {test_filename}', callback)
-        except:
-            ftp.abort()
+        except Exception as e:
+            if str(e) != "Aborted by client":
+                raise e
         
         results.add_result("ABOR during RETR", True)
         
@@ -351,6 +353,7 @@ def test_abor_command():
         sock = ftp.transfercmd('LIST')
         time.sleep(0.1)
         ftp.abort()
+        ftp.voidresp()  # Clear response
         sock.close()
         
         results.add_result("ABOR during LIST", True)

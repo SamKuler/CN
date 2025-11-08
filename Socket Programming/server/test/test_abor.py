@@ -92,6 +92,7 @@ def test_abor_retr():
             if received_bytes > 2 * 1024 * 1024:  # After 2MB
                 print(f"Downloaded {received_bytes} bytes, sending ABOR...")
                 ftp.abort()
+                ftp.voidresp()  # Clear response
                 raise Exception("Abort requested")
         
         try:
@@ -156,6 +157,7 @@ def test_abor_stor():
                 if sent_bytes > 2 * 1024 * 1024:  # After 2MB
                     print(f"Uploaded {sent_bytes} bytes, sending ABOR...")
                     ftp.abort()
+                    ftp.voidresp()  # Clear response
                     break
         
         sock.close()
@@ -207,6 +209,7 @@ def test_abor_list():
         
         # Send ABOR
         ftp.abort()
+        ftp.voidresp()  # Clear response
         sock.close()
         
         # Verify connection is still alive
@@ -288,6 +291,7 @@ def test_abor_post_operations():
             received_bytes += len(data)
             if received_bytes > 1024 * 1024:  # After 1MB
                 ftp.abort()
+                ftp.voidresp()  # Clear response
                 raise Exception("Abort")
         
         try:

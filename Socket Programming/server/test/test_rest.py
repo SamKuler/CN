@@ -116,6 +116,7 @@ def test_resume_download():
             received_bytes += len(data)
             if received_bytes >= BREAK_SIZE:
                 ftp.abort() # Use ABOR to stop the transfer cleanly
+                ftp.voidresp()  # Clear response
                 raise Exception("Interruption Point Reached")
 
         try:
@@ -206,6 +207,7 @@ def test_resume_upload():
                         sock.shutdown(socket.SHUT_WR)  # Ensure data is sent
                         time.sleep(0.05)  # Allow partial data to be sent
                         ftp.abort()
+                        ftp.voidresp()  # Clear response
                         print("ABOR sent.")
                         break
             print("Closing data connection...")
