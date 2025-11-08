@@ -4,6 +4,7 @@ Manages control and data connections
 """
 
 import socket
+import threading
 
 class BaseConnection:
     """Manages a single socket connection"""
@@ -22,6 +23,7 @@ class BaseConnection:
         self.timeout = timeout
         self.sock = None
         self.is_connected = False
+        self._lock = threading.Lock()
         
     def connect(self, host=None, port=None):
         """
@@ -61,8 +63,9 @@ class BaseConnection:
             
         if isinstance(data, str):
             data = data.encode('utf-8')
-            
-        self.sock.sendall(data)
+        
+        with self._lock:
+            self.sock.sendall(data)
     
     def recv(self, buffer_size=8192):
         """
@@ -89,6 +92,7 @@ class BaseConnection:
             self.is_connected = False
             self.sock = None
 
+
 class ControlConnection(BaseConnection):
     """Manages the FTP control connection"""
     
@@ -102,6 +106,7 @@ class ControlConnection(BaseConnection):
             timeout: Connection timeout in seconds
         """
         super().__init__(host, port, timeout)
+        self._recv_lock = threading.RLock()
     
     def recv_line(self):
         """
@@ -110,13 +115,14 @@ class ControlConnection(BaseConnection):
         Returns:
             str: Received line without CRLF
         """
-        line = b''
-        while not line.endswith(b'\r\n'):
-            chunk = self.recv(1)
-            if not chunk:
-                break
-            line += chunk
-        return line.decode('utf-8').rstrip('\r\n')
+        with self._recv_lock:
+            line = b''
+            while not line.endswith(b'\r\n'):
+                chunk = self.recv(1)
+                if not chunk:
+                    break
+                line += chunk
+            return line.decode('utf-8').rstrip('\r\n')
     
     def recv_multiline(self):
         """
@@ -125,21 +131,23 @@ class ControlConnection(BaseConnection):
         Returns:
             list: List of response lines
         """
-        lines = []
-        first_line = self.recv_line()
-        lines.append(first_line)
-        
-        # Check if multiline response '-' follows the code
-        if len(first_line) >= 4 and first_line[3] == '-':
-            code = first_line[:3]
-            while True:
-                line = self.recv_line()
-                lines.append(line)
-                # End of multiline when we see "code<space>"
-                if line.startswith(code + ' '):
-                    break
-        
-        return lines
+        with self._recv_lock:
+            lines = []
+            first_line = self.recv_line()
+            lines.append(first_line)
+            
+            # Check if multiline response '-' follows the code
+            if len(first_line) >= 4 and first_line[3] == '-':
+                code = first_line[:3]
+                while True:
+                    line = self.recv_line()
+                    lines.append(line)
+                    # End of multiline when we see "code<space>"
+                    if line.startswith(code + ' '):
+                        break
+            
+            return lines
+
 
 class DataConnection:
     """Manages FTP data connection for file transfers"""
@@ -148,7 +156,8 @@ class DataConnection:
         """Initialize data connection handler"""
         self.mode = 'passive'  # 'passive' or 'active'
         self.connection = None
-        self.server_socket = None # Only for active mode
+        self.server_socket = None  # Only for active mode
+        self._lock = threading.Lock()
         
     def setup_passive(self, host, port):
         """
@@ -158,8 +167,9 @@ class DataConnection:
             host: Data connection host
             port: Data connection port
         """
-        self.mode = 'passive'
-        self.connection = BaseConnection(host, port)
+        with self._lock:
+            self.mode = 'passive'
+            self.connection = BaseConnection(host, port)
         
     def setup_active(self, listen_host='0.0.0.0', listen_port=0):
         """
@@ -172,15 +182,16 @@ class DataConnection:
         Returns:
             tuple: (host, port) for PORT command
         """
-        self.mode = 'active'
-        self.server_socket = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
-        self.server_socket.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
-        self.server_socket.bind((listen_host, listen_port))
-        self.server_socket.listen(1)
-        
-        # Get actual bound address
-        host, port = self.server_socket.getsockname()
-        return host, port
+        with self._lock:
+            self.mode = 'active'
+            self.server_socket = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
+            self.server_socket.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
+            self.server_socket.bind((listen_host, listen_port))
+            self.server_socket.listen(1)
+            
+            # Get actual bound address
+            host, port = self.server_socket.getsockname()
+            return host, port
     
     def connect(self):
         """
@@ -229,11 +240,12 @@ class DataConnection:
     
     def close(self):
         """Close data connection"""
-        if self.connection:
-            self.connection.close()
-        if self.server_socket:
-            try:
-                self.server_socket.close()
-            except:
-                pass
-            self.server_socket = None
+        with self._lock:
+            if self.connection:
+                self.connection.close()
+            if self.server_socket:
+                try:
+                    self.server_socket.close()
+                except:
+                    pass
+                self.server_socket = None
