@@ -1115,17 +1115,11 @@ int cmd_handle_list(cmd_handler_context_t context, const proto_command_t *cmd)
                                      "Invalid path");
     }
 
-    // Check if path exists and is a directory
+    // Check if path exists
     if (!fs_path_exists(abs_path))
     {
         return session_send_response(session, PROTO_RESP_FILE_UNAVAILABLE,
                                      "Path not found");
-    }
-
-    if (!fs_is_directory(abs_path))
-    {
-        return session_send_response(session, PROTO_RESP_FILE_UNAVAILABLE,
-                                     "Path is not a directory");
     }
 
     int response = -1;
@@ -1217,17 +1211,11 @@ int cmd_handle_nlst(cmd_handler_context_t context, const proto_command_t *cmd)
                                      "Invalid path");
     }
 
-    // Check if path exists and is a directory
+    // Check if path exists
     if (!fs_path_exists(abs_path))
     {
         return session_send_response(session, PROTO_RESP_FILE_UNAVAILABLE,
                                      "Path not found");
-    }
-
-    if (!fs_is_directory(abs_path))
-    {
-        return session_send_response(session, PROTO_RESP_FILE_UNAVAILABLE,
-                                     "Path is not a directory");
     }
 
     int response = -1;
