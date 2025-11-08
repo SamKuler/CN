@@ -5,7 +5,7 @@ Extensible command registry pattern
 """
 
 from .parser import ResponseParser
-
+import socket
 
 class CommandHandler:
     """Base class for FTP command handlers"""
@@ -19,12 +19,13 @@ class CommandHandler:
         """
         self.client = client
     
-    def execute(self, *args):
+    def execute(self, *args, **kwargs):
         """
         Execute the command
         
         Args:
             *args: Command arguments
+            **kwargs: Additional options (e.g., callback, progress_callback)
             
         Returns:
             FTPResponse: Server response
@@ -47,10 +48,10 @@ class CommandHandler:
         return f"{command}\r\n"
 
 
-# FTP Command Handlers
+# ===== Authentication Commands =====
 
 class UserCommand(CommandHandler):
-    """USER command handler"""
+    """USER command handler - specify user for authentication"""
     
     def execute(self, username):
         """Send USER command"""
@@ -61,7 +62,7 @@ class UserCommand(CommandHandler):
 
 
 class PassCommand(CommandHandler):
-    """PASS command handler"""
+    """PASS command handler - specify password for authentication"""
     
     def execute(self, password):
         """Send PASS command"""
@@ -71,8 +72,10 @@ class PassCommand(CommandHandler):
         return ResponseParser.parse(lines)
 
 
+# ===== Data Connection Commands =====
+
 class PasvCommand(CommandHandler):
-    """PASV command handler"""
+    """PASV command handler - enter passive mode"""
     
     def execute(self):
         """Send PASV command and setup data connection"""
@@ -90,7 +93,7 @@ class PasvCommand(CommandHandler):
 
 
 class PortCommand(CommandHandler):
-    """PORT command handler"""
+    """PORT command handler - specify data port for active mode"""
     
     def execute(self, host=None, port=0):
         """Send PORT command and setup data connection"""
@@ -109,41 +112,97 @@ class PortCommand(CommandHandler):
         return ResponseParser.parse(lines)
 
 
+# ===== File Transfer Commands =====
+
 class RetrCommand(CommandHandler):
-    """RETR command handler for retrieving files"""
+    """RETR command handler - retrieve (download) a file"""
     
-    def execute(self, filename):
-        """Retrieve file from server"""
+    def execute(self, filename, local_path=None, offset=0, callback=None, progress_callback=None):
+        """
+        Retrieve file from server
+        
+        Args:
+            filename: Remote filename
+            local_path: Local path to save file (if None, stores in client.last_transfer_data)
+            offset: Byte offset for resume (REST marker)
+            callback: Completion callback(success, data_or_error)
+            progress_callback: Progress callback(bytes_transferred, total_bytes)
+        """
+        # If offset specified, send REST command first
+        if offset > 0:
+            rest_handler = RestCommand(self.client)
+            rest_response = rest_handler.execute(offset)
+            if not rest_response.is_success:
+                if callback:
+                    callback(False, rest_response)
+                return rest_response
+        
         # Send RETR command
         cmd = self.format_command("RETR", filename)
         self.client.control_conn.send(cmd)
         
-        # Get preliminary response
+        # Get preliminary response (150 or 125)
         lines = self.client.control_conn.recv_multiline()
         response = ResponseParser.parse(lines)
         
         if response.is_preliminary or response.is_success:
-            # Connect data channel and receive file
-            self.client.data_conn.connect()
-            data = self.client.data_conn.recv_all()
-            self.client.data_conn.close()
-            
-            # Get completion response
-            lines = self.client.control_conn.recv_multiline()
-            final_response = ResponseParser.parse(lines)
-            
-            # Store received data in client
-            self.client.last_transfer_data = data
-            return final_response
+            # Delegate to transfer manager for async transfer
+            if callback or local_path:
+                self.client.transfer_manager.start_download(
+                    filename=filename,
+                    local_path=local_path,
+                    offset=offset,
+                    callback=callback,
+                    progress_callback=progress_callback
+                )
+                return response
+            else:
+                # Synchronous transfer
+                self.client.data_conn.connect()
+                data = self.client.data_conn.recv_all()
+                self.client.data_conn.close()
+                
+                # Get completion response
+                lines = self.client.control_conn.recv_multiline()
+                final_response = ResponseParser.parse(lines)
+                
+                # Store received data in client
+                self.client.last_transfer_data = data
+                
+                if callback:
+                    callback(final_response.is_success, data if final_response.is_success else final_response)
+                
+                return final_response
         
+        if callback:
+            callback(False, response)
         return response
 
 
 class StorCommand(CommandHandler):
-    """STOR command handler for storing files"""
+    """STOR command handler - store (upload) a file"""
     
-    def execute(self, filename, data):
-        """Store file on server"""
+    def execute(self, filename, data=None, local_path=None, offset=0, callback=None, progress_callback=None):
+        """
+        Store file on server
+        
+        Args:
+            filename: Remote filename
+            data: File data as bytes (if provided, used directly)
+            local_path: Local file path (if data is None)
+            offset: Byte offset for resume (REST marker)
+            callback: Completion callback(success, response)
+            progress_callback: Progress callback(bytes_transferred, total_bytes)
+        """
+        # If offset specified, send REST command first
+        if offset > 0:
+            rest_handler = RestCommand(self.client)
+            rest_response = rest_handler.execute(offset)
+            if not rest_response.is_success:
+                if callback:
+                    callback(False, rest_response)
+                return rest_response
+        
         # Send STOR command
         cmd = self.format_command("STOR", filename)
         self.client.control_conn.send(cmd)
@@ -153,23 +212,159 @@ class StorCommand(CommandHandler):
         response = ResponseParser.parse(lines)
         
         if response.is_preliminary or response.is_success:
-            # Connect data channel and send file
-            self.client.data_conn.connect()
-            self.client.data_conn.send_data(data)
-            self.client.data_conn.close()
-            
-            # Get completion response
-            lines = self.client.control_conn.recv_multiline()
-            return ResponseParser.parse(lines)
+            # Delegate to transfer manager for async transfer
+            if callback or local_path:
+                self.client.transfer_manager.start_upload(
+                    filename=filename,
+                    data=data,
+                    local_path=local_path,
+                    offset=offset,
+                    callback=callback,
+                    progress_callback=progress_callback
+                )
+                return response
+            else:
+                # Synchronous transfer
+                self.client.data_conn.connect()
+                self.client.data_conn.send_data(data)
+                self.client.data_conn.close()
+                
+                # Get completion response
+                lines = self.client.control_conn.recv_multiline()
+                final_response = ResponseParser.parse(lines)
+                
+                if callback:
+                    callback(final_response.is_success, final_response)
+                
+                return final_response
         
+        if callback:
+            callback(False, response)
         return response
 
 
-class ListCommand(CommandHandler):
-    """LIST command handler"""
+class AppeCommand(CommandHandler):
+    """APPE command handler - append to a file"""
     
-    def execute(self, path=''):
-        """List directory contents"""
+    def execute(self, filename, data=None, local_path=None, callback=None, progress_callback=None):
+        """
+        Append data to file on server
+        
+        Args:
+            filename: Remote filename
+            data: File data as bytes (if provided, used directly)
+            local_path: Local file path (if data is None)
+            callback: Completion callback(success, response)
+            progress_callback: Progress callback(bytes_transferred, total_bytes)
+        """
+        # Send APPE command
+        cmd = self.format_command("APPE", filename)
+        self.client.control_conn.send(cmd)
+        
+        # Get preliminary response
+        lines = self.client.control_conn.recv_multiline()
+        response = ResponseParser.parse(lines)
+        
+        if response.is_preliminary or response.is_success:
+            # Delegate to transfer manager
+            if callback or local_path:
+                self.client.transfer_manager.start_append(
+                    filename=filename,
+                    data=data,
+                    local_path=local_path,
+                    callback=callback,
+                    progress_callback=progress_callback
+                )
+                return response
+            else:
+                # Synchronous transfer
+                self.client.data_conn.connect()
+                self.client.data_conn.send_data(data)
+                self.client.data_conn.close()
+                
+                # Get completion response
+                lines = self.client.control_conn.recv_multiline()
+                final_response = ResponseParser.parse(lines)
+                
+                if callback:
+                    callback(final_response.is_success, final_response)
+                
+                return final_response
+        
+        if callback:
+            callback(False, response)
+        return response
+
+
+class RestCommand(CommandHandler):
+    """REST command handler - restart transfer from specified point"""
+    
+    def execute(self, offset):
+        """
+        Send REST command to set restart marker
+        
+        Args:
+            offset: Byte offset to restart from
+            
+        Returns:
+            FTPResponse: Server response
+        """
+        cmd = self.format_command("REST", offset)
+        self.client.control_conn.send(cmd)
+        lines = self.client.control_conn.recv_multiline()
+        return ResponseParser.parse(lines)
+
+
+class AborCommand(CommandHandler):
+    """ABOR command handler - abort current transfer"""
+    
+    def execute(self):
+        """
+        Send ABOR command to abort current data transfer
+        Per RFC 959, ABOR is sent as urgent data using Telnet IP/Synch
+        """
+        # Send Telnet IP + Synch, then ABOR
+        try:
+            # Send as urgent data
+            self.client.control_conn.sock.sendall(b'\xff\xf4', socket.MSG_OOB)  # Telnet IP
+            self.client.control_conn.sock.sendall(b'\xff\xf2')  # Telnet Synch
+            cmd = self.format_command("ABOR")
+            self.client.control_conn.send(cmd)
+            
+            # Get responses - may get 426 (transfer aborted) then 226 (ABOR successful)
+            lines = self.client.control_conn.recv_multiline()
+            response = ResponseParser.parse(lines)
+            
+            # May receive second response
+            try:
+                lines2 = self.client.control_conn.recv_multiline()
+                response2 = ResponseParser.parse(lines2)
+                # Return the final response
+                return response2
+            except:
+                return response
+                
+        except Exception as e:
+            # Fallback: send ABOR normally
+            cmd = self.format_command("ABOR")
+            self.client.control_conn.send(cmd)
+            lines = self.client.control_conn.recv_multiline()
+            return ResponseParser.parse(lines)
+
+
+# ===== Directory Listing Commands =====
+
+class ListCommand(CommandHandler):
+    """LIST command handler - list directory contents"""
+    
+    def execute(self, path='', callback=None):
+        """
+        List directory contents
+        
+        Args:
+            path: Path to list (empty for current directory)
+            callback: Completion callback(success, data_or_error)
+        """
         # Send LIST command
         cmd = self.format_command("LIST", path) if path else self.format_command("LIST")
         self.client.control_conn.send(cmd)
@@ -190,13 +385,63 @@ class ListCommand(CommandHandler):
             
             # Store listing data
             self.client.last_transfer_data = data
+            
+            if callback:
+                callback(final_response.is_success, data if final_response.is_success else final_response)
+            
             return final_response
         
+        if callback:
+            callback(False, response)
         return response
 
 
+class NlstCommand(CommandHandler):
+    """NLST command handler - name list of directory"""
+    
+    def execute(self, path='', callback=None):
+        """
+        Get name list of directory
+        
+        Args:
+            path: Path to list (empty for current directory)
+            callback: Completion callback(success, data_or_error)
+        """
+        # Send NLST command
+        cmd = self.format_command("NLST", path) if path else self.format_command("NLST")
+        self.client.control_conn.send(cmd)
+        
+        # Get preliminary response
+        lines = self.client.control_conn.recv_multiline()
+        response = ResponseParser.parse(lines)
+        
+        if response.is_preliminary or response.is_success:
+            # Connect data channel and receive listing
+            self.client.data_conn.connect()
+            data = self.client.data_conn.recv_all()
+            self.client.data_conn.close()
+            
+            # Get completion response
+            lines = self.client.control_conn.recv_multiline()
+            final_response = ResponseParser.parse(lines)
+            
+            # Store listing data
+            self.client.last_transfer_data = data
+            
+            if callback:
+                callback(final_response.is_success, data if final_response.is_success else final_response)
+            
+            return final_response
+        
+        if callback:
+            callback(False, response)
+        return response
+
+
+# ===== Directory Management Commands =====
+
 class CwdCommand(CommandHandler):
-    """CWD command handler"""
+    """CWD command handler - change working directory"""
     
     def execute(self, directory):
         """Change working directory"""
@@ -206,8 +451,19 @@ class CwdCommand(CommandHandler):
         return ResponseParser.parse(lines)
 
 
+class CdupCommand(CommandHandler):
+    """CDUP command handler - change to parent directory"""
+    
+    def execute(self):
+        """Change to parent directory"""
+        cmd = self.format_command("CDUP")
+        self.client.control_conn.send(cmd)
+        lines = self.client.control_conn.recv_multiline()
+        return ResponseParser.parse(lines)
+
+
 class PwdCommand(CommandHandler):
-    """PWD command handler"""
+    """PWD command handler - print working directory"""
     
     def execute(self):
         """Print working directory"""
@@ -218,7 +474,7 @@ class PwdCommand(CommandHandler):
 
 
 class MkdCommand(CommandHandler):
-    """MKD command handler"""
+    """MKD command handler - make directory"""
     
     def execute(self, directory):
         """Make directory"""
@@ -229,7 +485,7 @@ class MkdCommand(CommandHandler):
 
 
 class RmdCommand(CommandHandler):
-    """RMD command handler"""
+    """RMD command handler - remove directory"""
     
     def execute(self, directory):
         """Remove directory"""
@@ -239,8 +495,91 @@ class RmdCommand(CommandHandler):
         return ResponseParser.parse(lines)
 
 
+# ===== File Management Commands =====
+
+class DeleCommand(CommandHandler):
+    """DELE command handler - delete file"""
+    
+    def execute(self, filename):
+        """Delete file"""
+        cmd = self.format_command("DELE", filename)
+        self.client.control_conn.send(cmd)
+        lines = self.client.control_conn.recv_multiline()
+        return ResponseParser.parse(lines)
+
+
+class RnfrCommand(CommandHandler):
+    """RNFR command handler - rename from (first step of rename)"""
+    
+    def execute(self, filename):
+        """Specify file to rename"""
+        cmd = self.format_command("RNFR", filename)
+        self.client.control_conn.send(cmd)
+        lines = self.client.control_conn.recv_multiline()
+        return ResponseParser.parse(lines)
+
+
+class RntoCommand(CommandHandler):
+    """RNTO command handler - rename to (second step of rename)"""
+    
+    def execute(self, filename):
+        """Specify new filename"""
+        cmd = self.format_command("RNTO", filename)
+        self.client.control_conn.send(cmd)
+        lines = self.client.control_conn.recv_multiline()
+        return ResponseParser.parse(lines)
+
+
+# ===== Additional Utility Commands =====
+
+class SizeCommand(CommandHandler):
+    """SIZE command handler - get file size"""
+    
+    def execute(self, filename):
+        """
+        Get size of file
+        
+        Args:
+            filename: Remote filename
+            
+        Returns:
+            FTPResponse: Response with file size in message
+        """
+        cmd = self.format_command("SIZE", filename)
+        self.client.control_conn.send(cmd)
+        lines = self.client.control_conn.recv_multiline()
+        return ResponseParser.parse(lines)
+
+
+class TypeCommand(CommandHandler):
+    """TYPE command handler - set transfer type"""
+    
+    def execute(self, type_code='I'):
+        """
+        Set representation type
+        
+        Args:
+            type_code: 'A' for ASCII, 'I' for Image (binary)
+        """
+        cmd = self.format_command("TYPE", type_code)
+        self.client.control_conn.send(cmd)
+        lines = self.client.control_conn.recv_multiline()
+        return ResponseParser.parse(lines)
+
+
+class SystCommand(CommandHandler):
+    """SYST command handler - get system type"""
+    
+    def execute(self):
+        """Get server system type"""
+        cmd = self.format_command("SYST")
+        self.client.control_conn.send(cmd)
+        lines = self.client.control_conn.recv_multiline()
+        return ResponseParser.parse(lines)
+
+
 class QuitCommand(CommandHandler):
-    """QUIT command handler"""
+    """QUIT command handler - logout and close connection"""
     
     def execute(self):
         """Send QUIT command"""
@@ -249,6 +588,19 @@ class QuitCommand(CommandHandler):
         lines = self.client.control_conn.recv_multiline()
         return ResponseParser.parse(lines)
 
+
+class NoopCommand(CommandHandler):
+    """NOOP command handler - no operation (keep-alive)"""
+    
+    def execute(self):
+        """Send NOOP command"""
+        cmd = self.format_command("NOOP")
+        self.client.control_conn.send(cmd)
+        lines = self.client.control_conn.recv_multiline()
+        return ResponseParser.parse(lines)
+
+
+# ===== Generic Command Handler =====
 
 class GenericCommand(CommandHandler):
     """Generic command handler for any FTP command"""
@@ -267,6 +619,8 @@ class GenericCommand(CommandHandler):
         return ResponseParser.parse(lines)
 
 
+# ===== Command Registry =====
+
 class CommandRegistry:
     """Registry for FTP commands"""
     
@@ -283,18 +637,43 @@ class CommandRegistry:
     
     def _register_default_commands(self):
         """Register default FTP commands"""
+        # Authentication
         self.register('USER', UserCommand)
         self.register('PASS', PassCommand)
+        
+        # Data connection
         self.register('PASV', PasvCommand)
         self.register('PORT', PortCommand)
+        
+        # File transfer
         self.register('RETR', RetrCommand)
         self.register('STOR', StorCommand)
+        self.register('APPE', AppeCommand)
+        self.register('REST', RestCommand)
+        self.register('ABOR', AborCommand)
+        
+        # Directory listing
         self.register('LIST', ListCommand)
+        self.register('NLST', NlstCommand)
+        
+        # Directory management
         self.register('CWD', CwdCommand)
+        self.register('CDUP', CdupCommand)
         self.register('PWD', PwdCommand)
         self.register('MKD', MkdCommand)
         self.register('RMD', RmdCommand)
+        
+        # File management
+        self.register('DELE', DeleCommand)
+        self.register('RNFR', RnfrCommand)
+        self.register('RNTO', RntoCommand)
+        
+        # Utility commands
+        self.register('SIZE', SizeCommand)
+        self.register('TYPE', TypeCommand)
+        self.register('SYST', SystCommand)
         self.register('QUIT', QuitCommand)
+        self.register('NOOP', NoopCommand)
     
     def register(self, command_name, handler_class):
         """
@@ -320,13 +699,14 @@ class CommandRegistry:
         handler_class = self.commands.get(command_name, GenericCommand)
         return handler_class(self.client)
     
-    def execute(self, command_name, *args):
+    def execute(self, command_name, *args, **kwargs):
         """
         Execute a command
         
         Args:
             command_name: Command name
             *args: Command arguments
+            **kwargs: Additional options (callback, etc.)
             
         Returns:
             FTPResponse: Server response
@@ -337,4 +717,4 @@ class CommandRegistry:
         if isinstance(handler, GenericCommand):
             return handler.execute(command_name, *args)
         
-        return handler.execute(*args)
+        return handler.execute(*args, **kwargs)
