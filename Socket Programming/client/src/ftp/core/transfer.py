@@ -118,11 +118,11 @@ class TransferManager:
         
         Args:
             client: FTPClient instance
-            max_concurrent: Maximum concurrent transfers (None = unlimited)
+            max_concurrent: Maximum concurrent transfers (None = unlimited, but effectively 1 due to single data connection)
         """
         self.client = client
-        self.max_concurrent = max_concurrent
-        
+        self.max_concurrent = max_concurrent if max_concurrent is None or max_concurrent <= 1 else 1  # Limit to 1 due to single data connection
+
         self.transfers = {}  # transfer_id -> Transfer
         self.transfer_counter = 0
         self.transfer_lock = threading.Lock()
