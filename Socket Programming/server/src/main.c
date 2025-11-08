@@ -15,13 +15,13 @@
 #include <signal.h>
 
 // Default configuration
-#define DEFAULT_PORT 2121
-#define DEFAULT_ROOT_DIR "/tmp" // Change as HOMEWORK REQUIREMENT ON UNIX systems
-#define DEFAULT_BIND_ADDRESS "127.0.0.1"  // Bind to localhost only for security
+#define DEFAULT_PORT 21                  // Change as HOMEWORK REQUIREMENT
+#define DEFAULT_ROOT_DIR "/tmp"          // Change as HOMEWORK REQUIREMENT ON UNIX systems
+#define DEFAULT_BIND_ADDRESS "127.0.0.1" // Bind to localhost only for security
 #define DEFAULT_MAX_BACKLOG 10
-#define DEFAULT_COMMAND_TIMEOUT_MS 300000  // 5 minutes
-#define DEFAULT_MAX_CONNECTIONS 100       // Maximum concurrent connections
-#define DEFAULT_ADDRESS_FAMILY NET_AF_UNSPEC  // Default to unspecified (auto-detect)
+#define DEFAULT_COMMAND_TIMEOUT_MS 300000    // 5 minutes
+#define DEFAULT_MAX_CONNECTIONS 100          // Maximum concurrent connections
+#define DEFAULT_ADDRESS_FAMILY NET_AF_UNSPEC // Default to unspecified (auto-detect)
 
 /**
  * @brief Signal handler for graceful shutdown
@@ -59,8 +59,7 @@ int main(int argc, char *argv[])
         .max_backlog = DEFAULT_MAX_BACKLOG,
         .command_timeout_ms = DEFAULT_COMMAND_TIMEOUT_MS,
         .max_connections = DEFAULT_MAX_CONNECTIONS,
-        .address_family = DEFAULT_ADDRESS_FAMILY
-    };
+        .address_family = DEFAULT_ADDRESS_FAMILY};
     strncpy(config.root_dir, DEFAULT_ROOT_DIR, sizeof(config.root_dir) - 1);
     config.root_dir[sizeof(config.root_dir) - 1] = '\0';
     strncpy(config.bind_address, DEFAULT_BIND_ADDRESS, sizeof(config.bind_address) - 1);
