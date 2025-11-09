@@ -118,7 +118,7 @@ class PortCommand(CommandHandler):
 class RetrCommand(CommandHandler):
     """RETR command handler - retrieve (download) a file"""
 
-    def execute(self, filename, local_path=None, offset=0, callback=None, progress_callback=None):
+    def execute(self, filename, local_path=None, offset=0, callback=None, progress_callback=None, async_mode=True):
         """
         Retrieve file from server
         
@@ -128,6 +128,7 @@ class RetrCommand(CommandHandler):
             offset: Byte offset for resume (REST marker)
             callback: Completion callback(success, data_or_error)
             progress_callback: Progress callback(bytes_transferred, total_bytes)
+            async_mode: Whether to force asynchronous transfer
         """
         # If offset specified, send REST command first
         if offset > 0:
@@ -147,13 +148,12 @@ class RetrCommand(CommandHandler):
         response = ResponseParser.parse(lines)
 
         if response.is_preliminary or response.is_success:
-            # Delegate to transfer manager for async transfer
-            if callback or local_path:
+            if async_mode and (callback or local_path):
+                # Delegate to transfer manager for async transfer
                 try:
                     if not (self.client.data_conn.connection and self.client.data_conn.connection.is_connected):
                         self.client.data_conn.connect()
                 except Exception:
-                    # If connect fails here, still start worker; it will report failure
                     pass
                 self.client.transfer_manager.start_download(
                     filename=filename,
@@ -164,7 +164,7 @@ class RetrCommand(CommandHandler):
                 )
                 return response
             else:
-                # Synchronous transfer
+                # Synchronous path (force or no local_path/callback)
                 self.client.data_conn.connect()
                 data = self.client.data_conn.recv_all()
                 self.client.data_conn.close()
@@ -172,6 +172,17 @@ class RetrCommand(CommandHandler):
                 # Get completion response
                 lines = self.client.control_conn.recv_multiline()
                 final_response = ResponseParser.parse(lines)
+
+                # Only write when local_path specified
+                if local_path and data:
+                    try:
+                        mode = 'ab' if offset > 0 else 'wb'
+                        with open(local_path, mode) as f:
+                            f.write(data)
+                    except Exception as e:
+                        if callback:
+                            callback(False, str(e))
+                        return final_response
 
                 # Store received data in client
                 self.client.last_transfer_data = data
@@ -189,7 +200,7 @@ class RetrCommand(CommandHandler):
 class StorCommand(CommandHandler):
     """STOR command handler - store (upload) a file"""
 
-    def execute(self, filename, data=None, local_path=None, offset=0, callback=None, progress_callback=None):
+    def execute(self, filename, data=None, local_path=None, offset=0, callback=None, progress_callback=None, async_mode=True):
         """
         Store file on server
         
@@ -200,6 +211,7 @@ class StorCommand(CommandHandler):
             offset: Byte offset for resume (REST marker)
             callback: Completion callback(success, response)
             progress_callback: Progress callback(bytes_transferred, total_bytes)
+            async_mode: Whether to force asynchronous transfer
         """
         # If offset specified, send REST command first
         if offset > 0:
@@ -219,8 +231,8 @@ class StorCommand(CommandHandler):
         response = ResponseParser.parse(lines)
 
         if response.is_preliminary or response.is_success:
-            # Delegate to transfer manager for async transfer
-            if callback or local_path:
+            if async_mode and (callback or local_path):
+                # Delegate to transfer manager for async transfer
                 try:
                     if not (self.client.data_conn.connection and self.client.data_conn.connection.is_connected):
                         self.client.data_conn.connect()
@@ -236,9 +248,24 @@ class StorCommand(CommandHandler):
                 )
                 return response
             else:
-                # Synchronous transfer
+                # Synchronous path
                 self.client.data_conn.connect()
-                self.client.data_conn.send_data(data)
+                # Prepare bytes to send
+                if data is None and local_path:
+                    try:
+                        with open(local_path, 'rb') as f:
+                            if offset > 0:
+                                f.seek(offset)
+                            data = f.read()
+                    except Exception as e:
+                        if callback:
+                            callback(False, str(e))
+                        # still read final response to keep protocol in sync
+                        lines = self.client.control_conn.recv_multiline()
+                        final_response = ResponseParser.parse(lines)
+                        return final_response
+                if data:
+                    self.client.data_conn.send_data(data)
                 self.client.data_conn.close()
 
                 # Get completion response
@@ -258,7 +285,7 @@ class StorCommand(CommandHandler):
 class AppeCommand(CommandHandler):
     """APPE command handler - append to a file"""
 
-    def execute(self, filename, data=None, local_path=None, callback=None, progress_callback=None):
+    def execute(self, filename, data=None, local_path=None, callback=None, progress_callback=None, async_mode=True):
         """
         Append data to file on server
         
@@ -268,6 +295,7 @@ class AppeCommand(CommandHandler):
             local_path: Local file path (if data is None)
             callback: Completion callback(success, response)
             progress_callback: Progress callback(bytes_transferred, total_bytes)
+            async_mode: Whether to force asynchronous transfer
         """
         # Send APPE command
         cmd = self.format_command("APPE", filename)
@@ -278,8 +306,8 @@ class AppeCommand(CommandHandler):
         response = ResponseParser.parse(lines)
 
         if response.is_preliminary or response.is_success:
-            # Delegate to transfer manager
-            if callback or local_path:
+            if async_mode and (callback or local_path):
+                # Delegate to transfer manager
                 try:
                     if not (self.client.data_conn.connection and self.client.data_conn.connection.is_connected):
                         self.client.data_conn.connect()
@@ -294,9 +322,20 @@ class AppeCommand(CommandHandler):
                 )
                 return response
             else:
-                # Synchronous transfer
+                # Synchronous path
                 self.client.data_conn.connect()
-                self.client.data_conn.send_data(data)
+                if data is None and local_path:
+                    try:
+                        with open(local_path, 'rb') as f:
+                            data = f.read()
+                    except Exception as e:
+                        if callback:
+                            callback(False, str(e))
+                        lines = self.client.control_conn.recv_multiline()
+                        final_response = ResponseParser.parse(lines)
+                        return final_response
+                if data:
+                    self.client.data_conn.send_data(data)
                 self.client.data_conn.close()
 
                 # Get completion response
