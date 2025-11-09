@@ -192,8 +192,21 @@ class RetrCommand(CommandHandler):
                 # Synchronous path (force or no local_path/callback)
                 # Yield preliminary response first
                 yield response
-                
-                self.client.data_conn.connect()
+
+                try:
+                    self.client.data_conn.connect()
+                except Exception as e:
+                    if callback:
+                        callback(False, f"Data connection failed: {e}")
+                    # Read final response to keep protocol in sync
+                    try:
+                        lines = self.client.control_conn.recv_multiline()
+                        final_response = ResponseParser.parse(lines)
+                        yield final_response
+                    except:
+                        pass
+                    return
+
                 data = self.client.data_conn.recv_all()
                 self.client.data_conn.close()
 
@@ -225,13 +238,15 @@ class RetrCommand(CommandHandler):
 
         if callback:
             callback(False, response)
-        return response
+        yield response
+        return
 
 
 class StorCommand(CommandHandler):
     """STOR command handler - store (upload) a file"""
 
-    def execute(self, filename, data=None, local_path=None, offset=0, callback=None, progress_callback=None, async_mode=True):
+    def execute(self, filename, data=None, local_path=None, offset=0, callback=None, progress_callback=None,
+                async_mode=True):
         """
         Store file on server
         
@@ -283,8 +298,21 @@ class StorCommand(CommandHandler):
                 # Synchronous path
                 # Yield preliminary response first
                 yield response
-                
-                self.client.data_conn.connect()
+
+                try:
+                    self.client.data_conn.connect()
+                except Exception as e:
+                    if callback:
+                        callback(False, f"Data connection failed: {e}")
+                    # Read final response to keep protocol in sync
+                    try:
+                        lines = self.client.control_conn.recv_multiline()
+                        final_response = ResponseParser.parse(lines)
+                        yield final_response
+                    except:
+                        pass
+                    return
+
                 # Prepare bytes to send
                 if data is None and local_path:
                     try:
@@ -317,7 +345,8 @@ class StorCommand(CommandHandler):
 
         if callback:
             callback(False, response)
-        return response
+        yield response
+        return
 
 
 class AppeCommand(CommandHandler):
@@ -364,8 +393,21 @@ class AppeCommand(CommandHandler):
                 # Synchronous path
                 # Yield preliminary response first
                 yield response
-                
-                self.client.data_conn.connect()
+
+                try:
+                    self.client.data_conn.connect()
+                except Exception as e:
+                    if callback:
+                        callback(False, f"Data connection failed: {e}")
+                    # Read final response to keep protocol in sync
+                    try:
+                        lines = self.client.control_conn.recv_multiline()
+                        final_response = ResponseParser.parse(lines)
+                        yield final_response
+                    except:
+                        pass
+                    return
+
                 if data is None and local_path:
                     try:
                         with open(local_path, 'rb') as f:
@@ -394,7 +436,8 @@ class AppeCommand(CommandHandler):
 
         if callback:
             callback(False, response)
-        return response
+        yield response
+        return
 
 
 class RestCommand(CommandHandler):
@@ -445,7 +488,7 @@ class AborCommand(CommandHandler):
                     return response2
                 except:
                     return response
-            
+
             # Return the first successful response
             return response
 
@@ -481,7 +524,7 @@ class ListCommand(CommandHandler):
         if response.is_preliminary or response.is_success:
             # Yield preliminary response first
             yield response
-            
+
             # Connect data channel and receive listing
             self.client.data_conn.connect()
             data = self.client.data_conn.recv_all()
@@ -503,7 +546,8 @@ class ListCommand(CommandHandler):
 
         if callback:
             callback(False, response)
-        return response
+        yield response
+        return
 
 
 class NlstCommand(CommandHandler):
@@ -528,7 +572,7 @@ class NlstCommand(CommandHandler):
         if response.is_preliminary or response.is_success:
             # Yield preliminary response first
             yield response
-            
+
             # Connect data channel and receive listing
             self.client.data_conn.connect()
             data = self.client.data_conn.recv_all()
@@ -551,6 +595,7 @@ class NlstCommand(CommandHandler):
         if callback:
             callback(False, response)
         yield response
+        return
 
 
 # ===== Directory Management Commands =====
