@@ -353,13 +353,14 @@ class AborCommand(CommandHandler):
             response = ResponseParser.parse(lines)
 
             # May receive second response
-            try:
-                lines2 = self.client.control_conn.recv_multiline()
-                response2 = ResponseParser.parse(lines2)
-                # Return the final response
-                return response2
-            except:
-                return response
+            if not response.is_success:
+                try:
+                    lines2 = self.client.control_conn.recv_multiline()
+                    response2 = ResponseParser.parse(lines2)
+                    # Return the final response
+                    return response2
+                except:
+                    return response
 
         except Exception as e:
             # Fallback: send ABOR normally
@@ -377,7 +378,7 @@ class ListCommand(CommandHandler):
     def execute(self, path='', callback=None):
         """
         List directory contents
-        
+
         Args:
             path: Path to list (empty for current directory)
             callback: Completion callback(success, data_or_error)
