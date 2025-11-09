@@ -518,9 +518,18 @@ class CLIInterface:
                 remote = args[2] if len(args) > 2 else os.path.basename(local)
                 self._raw_appe(local, remote)
                 return
+            if upper == 'LIST':
+                path = args[1] if len(args) > 1 else ''
+                self._raw_list(path)
+                return
             # Generic command path
             resp = self.client.execute_command(upper, *args[1:])
-            print(resp)
+            # Handle potential generator response
+            if hasattr(resp, '__iter__') and not isinstance(resp, (str, bytes)):
+                for r in resp:
+                    print(r)
+            else:
+                print(resp)
         except ConnectionError as e:
             # Connection broken - update connected state
             self.connected = False

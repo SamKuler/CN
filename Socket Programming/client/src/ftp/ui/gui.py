@@ -662,6 +662,9 @@ class GUIInterface:
                 else:
                     response = self.client.execute_command(cmd)
 
+                # Consume generator response if needed
+                response = self._consume_generator_response(response)
+
                 self._log_output(f"> {command}\n{response}")
 
             except Exception as e:
