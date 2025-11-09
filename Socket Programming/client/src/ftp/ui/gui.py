@@ -323,9 +323,9 @@ class GUIInterface:
                     self.connected = True
                     self.root.after(0, self._on_connect_success)
                 else:
-                    self.root.after(0, lambda: messagebox.showerror("Login Failed", str(response)))
+                    self.root.after(0, lambda response=response: messagebox.showerror("Login Failed", str(response)))
             except Exception as e:
-                self.root.after(0, lambda: messagebox.showerror("Connection Error", str(e)))
+                self.root.after(0, lambda e=e: messagebox.showerror("Connection Error", str(e)))
 
         threading.Thread(target=connect_thread, daemon=True).start()
 
@@ -403,6 +403,7 @@ class GUIInterface:
 
         selections = self.local_listbox.curselection()
         if not selections:
+            self._end_transfer()  # Release transfer lock
             messagebox.showwarning("No Selection", "Please select files to upload")
             return
 
@@ -432,7 +433,7 @@ class GUIInterface:
                     def on_progress(done, total, i=item_id, st=start_time):
                         percent = (done / total * 100) if total else 0
                         speed = self._format_bps(done / max(1e-6, time.time() - st))
-                        self.root.after(0, lambda: (
+                        self.root.after(0, lambda percent=percent, speed=speed: (
                             self.transfer_tree.set(i, 'Progress', f"{percent:.0f}%"),
                             self.transfer_tree.set(i, 'Speed', speed),
                             self.progress_var.set(percent)
@@ -486,6 +487,7 @@ class GUIInterface:
 
         selections = self.remote_listbox.curselection()
         if not selections:
+            self._end_transfer()  # Release transfer lock
             messagebox.showwarning("No Selection", "Please select files to download")
             return
 
@@ -514,7 +516,7 @@ class GUIInterface:
                     def on_progress(done, total, i=item_id, st=start_time):
                         percent = (done / total * 100) if total else 0
                         speed = self._format_bps(done / max(1e-6, time.time() - st))
-                        self.root.after(0, lambda: (
+                        self.root.after(0, lambda percent=percent, speed=speed: (
                             self.transfer_tree.set(i, 'Progress', f"{percent:.0f}%"),
                             self.transfer_tree.set(i, 'Speed', speed),
                             self.progress_var.set(percent)
@@ -596,6 +598,8 @@ class GUIInterface:
             return
 
         def abort_thread():
+            resp = None
+            err = None
             try:
                 resp = self.client.abort_transfer()
                 # Cancel any active transfers and close data channel to fully reset state
@@ -607,16 +611,20 @@ class GUIInterface:
                     self.client.data_conn.close()
                 except Exception:
                     pass
-                self._log_output(f"Abort: {resp}")
-                self.root.after(0, lambda: (
-                    self._end_transfer(),
-                    messagebox.showinfo("Transfer Aborted", str(resp))
-                ))
             except Exception as e:
-                self.root.after(0, lambda: (
-                    self._end_transfer(),
-                    messagebox.showerror("Abort Error", str(e))
-                ))
+                err = e
+            finally:
+                # Ensure UI updates happen in main thread
+                def update_ui():
+                    self._end_transfer()
+                    if err:
+                        self._log_output(f"Abort error: {err}")
+                        messagebox.showerror("Abort Error", str(err))
+                    elif resp:
+                        self._log_output(f"Abort: {resp}")
+                        messagebox.showinfo("Transfer Aborted", str(resp))
+
+                self.root.after(0, update_ui)
 
         threading.Thread(target=abort_thread, daemon=True).start()
 
@@ -713,8 +721,8 @@ class GUIInterface:
                         from ..core.parser import ResponseParser
                         new_path = ResponseParser.parse_pwd_response(pwd_response)
                         if new_path:
-                            self.root.after(0, lambda: self.remote_path_entry.delete(0, tk.END))
-                            self.root.after(0, lambda: self.remote_path_entry.insert(0, new_path))
+                            self.root.after(0, lambda new_path=new_path: self.remote_path_entry.delete(0, tk.END))
+                            self.root.after(0, lambda new_path=new_path: self.remote_path_entry.insert(0, new_path))
 
                     self.root.after(0, self._refresh_remote_list)
                 else:
@@ -872,11 +880,13 @@ class GUIInterface:
         # Select local single file
         selections = self.local_listbox.curselection()
         if len(selections) != 1:
+            self._end_transfer()  # Release transfer lock
             messagebox.showwarning("Select One", "Select exactly one local file to append")
             return
         local_path = self.local_path_entry.get()
         filename = self.local_listbox.get(selections[0])
         if filename.endswith('/') or filename == '..':
+            self._end_transfer()  # Release transfer lock
             messagebox.showwarning("Invalid", "Cannot append a directory")
             return
         local_file = os.path.join(local_path, filename)
@@ -897,7 +907,7 @@ class GUIInterface:
                 def on_progress(done, total, i=item_id, st=start_time):
                     percent = (done / total * 100) if total else 0
                     speed = self._format_bps(done / max(1e-6, time.time() - st))
-                    self.root.after(0, lambda: (
+                    self.root.after(0, lambda percent=percent, speed=speed: (
                         self.transfer_tree.set(i, 'Progress', f"{percent:.0f}%"),
                         self.transfer_tree.set(i, 'Speed', speed),
                         self.progress_var.set(percent)
@@ -948,10 +958,12 @@ class GUIInterface:
             return
         selections = self.remote_listbox.curselection()
         if len(selections) != 1:
+            self._end_transfer()  # Release transfer lock
             messagebox.showwarning("Select One", "Select exactly one remote file")
             return
         filename = self.remote_listbox.get(selections[0])
         if filename.endswith('/') or filename == '..':
+            self._end_transfer()  # Release transfer lock
             messagebox.showwarning("Invalid", "Cannot resume a directory")
             return
         local_file = os.path.join(self.local_path_entry.get(), filename)
@@ -976,6 +988,7 @@ class GUIInterface:
         hint_msg = " | ".join(hint_parts) if hint_parts else "Enter resume offset"
         offset = self._ask_offset("Resume Download Offset", default_offset=suggested, hint_msg=hint_msg)
         if offset is None:
+            self._end_transfer()  # Release transfer lock
             return
 
         def resume_thread(rf=filename, lf=local_file, off=offset):
@@ -993,7 +1006,7 @@ class GUIInterface:
                 def on_progress(done, total, i=item_id, st=start_time):
                     percent = (done / total * 100) if total else 0
                     speed = self._format_bps(done / max(1e-6, time.time() - st))
-                    self.root.after(0, lambda: (
+                    self.root.after(0, lambda percent=percent, speed=speed: (
                         self.transfer_tree.set(i, 'Progress', f"{percent:.0f}%"),
                         self.transfer_tree.set(i, 'Speed', speed),
                         self.progress_var.set(percent)
@@ -1044,15 +1057,18 @@ class GUIInterface:
             return
         selections = self.local_listbox.curselection()
         if len(selections) != 1:
+            self._end_transfer()  # Release transfer lock
             messagebox.showwarning("Select One", "Select exactly one local file")
             return
         local_path = self.local_path_entry.get()
         filename = self.local_listbox.get(selections[0])
         if filename.endswith('/') or filename == '..':
+            self._end_transfer()  # Release transfer lock
             messagebox.showwarning("Invalid", "Cannot resume a directory")
             return
         local_file = os.path.join(local_path, filename)
         if not os.path.exists(local_file):
+            self._end_transfer()  # Release transfer lock
             messagebox.showwarning("Missing", "Local file does not exist for resume")
             return
         try:
@@ -1072,6 +1088,7 @@ class GUIInterface:
         hint_msg = " | ".join(hint_parts)
         offset = self._ask_offset("Resume Upload Offset", default_offset=suggested, hint_msg=hint_msg)
         if offset is None:
+            self._end_transfer()  # Release transfer lock
             return
         remote_name = filename
 
@@ -1090,7 +1107,7 @@ class GUIInterface:
                 def on_progress(done, total, i=item_id, st=start_time):
                     percent = (done / total * 100) if total else 0
                     speed = self._format_bps(done / max(1e-6, time.time() - st))
-                    self.root.after(0, lambda: (
+                    self.root.after(0, lambda percent=percent, speed=speed: (
                         self.transfer_tree.set(i, 'Progress', f"{percent:.0f}%"),
                         self.transfer_tree.set(i, 'Speed', speed),
                         self.progress_var.set(percent)
