@@ -372,7 +372,7 @@ class TransferManager:
             elif final_response.is_success:
                 transfer.status = TransferStatus.COMPLETED
                 success = True
-                result = data_buffer if not transfer.local_path else transfer.local_path
+                result = final_response
                 # Store in client for compatibility
                 if not transfer.local_path:
                     self.client.last_transfer_data = data_buffer
