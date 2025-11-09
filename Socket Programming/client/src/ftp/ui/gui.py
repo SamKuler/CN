@@ -654,9 +654,15 @@ class GUIInterface:
         def cmd_thread():
             try:
                 parts = command.split(None, 1)
-                cmd = parts[0]
+                cmd = parts[0].upper()
                 arg = parts[1] if len(parts) > 1 else None
 
+                # Check if this is a transfer command that needs special handling
+                if cmd in ['STOR', 'RETR', 'APPE']:
+                    self._handle_raw_transfer_command(cmd, arg)
+                    return
+
+                # Regular command execution
                 if arg:
                     response = self.client.execute_command(cmd, arg)
                 else:
@@ -671,6 +677,202 @@ class GUIInterface:
                 self._log_output(f"> {command}\nError: {e}")
 
         threading.Thread(target=cmd_thread, daemon=True).start()
+
+    def _handle_raw_transfer_command(self, cmd, arg):
+        """Handle transfer commands (STOR/RETR/APPE) from command input with transfer UI"""
+        if not arg:
+            self._log_output(f"> {cmd}\nError: Missing filename argument")
+            return
+
+        # Parse arguments - format can be: filename or "local_file remote_file"
+        parts = arg.split(None, 1)
+        
+        if cmd == 'STOR':
+            # STOR local_file [remote_file]
+            local_file = parts[0]
+            remote_file = parts[1] if len(parts) > 1 else os.path.basename(local_file)
+            
+            if not os.path.exists(local_file):
+                self._log_output(f"> STOR {arg}\nError: Local file not found: {local_file}")
+                return
+            
+            self._execute_raw_upload(local_file, remote_file)
+            
+        elif cmd == 'RETR':
+            # RETR remote_file [local_file]
+            remote_file = parts[0]
+            local_file = parts[1] if len(parts) > 1 else os.path.basename(remote_file)
+            
+            self._execute_raw_download(remote_file, local_file)
+            
+        elif cmd == 'APPE':
+            # APPE local_file [remote_file]
+            local_file = parts[0]
+            remote_file = parts[1] if len(parts) > 1 else os.path.basename(local_file)
+            
+            if not os.path.exists(local_file):
+                self._log_output(f"> APPE {arg}\nError: Local file not found: {local_file}")
+                return
+            
+            self._execute_raw_append(local_file, remote_file)
+
+    def _execute_raw_upload(self, local_file, remote_file):
+        """Execute upload from raw command with transfer UI"""
+        def upload_thread():
+            try:
+                item_id = self.transfer_tree.insert('', tk.END,
+                                                    values=(remote_file, 'Upload', 'Starting', '0%', '-'))
+                start_time = time.time()
+                
+                self.root.after(0, lambda: self.transfer_tree.set(item_id, 'Status', 'Uploading'))
+
+                def on_progress(done, total):
+                    percent = (done / total * 100) if total else 0
+                    speed = self._format_bps(done / max(1e-6, time.time() - start_time))
+                    self.root.after(0, lambda: (
+                        self.transfer_tree.set(item_id, 'Progress', f"{percent:.0f}%"),
+                        self.transfer_tree.set(item_id, 'Speed', speed),
+                        self.progress_var.set(percent)
+                    ))
+
+                def on_complete(success, result):
+                    elapsed = max(1e-6, time.time() - start_time)
+                    sent = os.path.getsize(local_file) if os.path.exists(local_file) else 0
+                    final_speed = self._format_bps(sent / elapsed) if success else '-'
+                    
+                    if success:
+                        self._log_output(f"> STOR {remote_file}\n{result}")
+                        self.root.after(0, lambda: (
+                            self.transfer_tree.set(item_id, 'Status', 'Complete'),
+                            self.transfer_tree.set(item_id, 'Progress', '100%'),
+                            self.transfer_tree.set(item_id, 'Speed', final_speed),
+                            self._refresh_remote_list()
+                        ))
+                    else:
+                        self._log_output(f"> STOR {remote_file}\nFailed: {result}")
+                        self.root.after(0, lambda: (
+                            self.transfer_tree.set(item_id, 'Status', 'Failed'),
+                            self.transfer_tree.set(item_id, 'Speed', '-')
+                        ))
+
+                result = self.client.execute_command('STOR', remote_file, local_path=local_file,
+                                                     callback=on_complete,
+                                                     progress_callback=on_progress,
+                                                     async_mode=True)
+                # Consume generator
+                if hasattr(result, '__iter__') and not isinstance(result, (str, bytes)):
+                    for _ in result:
+                        pass
+            except Exception as e:
+                self._log_output(f"> STOR {remote_file}\nError: {e}")
+                self.root.after(0, lambda: self.transfer_tree.set(item_id, 'Status', 'Failed'))
+
+        threading.Thread(target=upload_thread, daemon=True).start()
+
+    def _execute_raw_download(self, remote_file, local_file):
+        """Execute download from raw command with transfer UI"""
+        def download_thread():
+            try:
+                item_id = self.transfer_tree.insert('', tk.END,
+                                                    values=(remote_file, 'Download', 'Starting', '0%', '-'))
+                start_time = time.time()
+                
+                self.root.after(0, lambda: self.transfer_tree.set(item_id, 'Status', 'Downloading'))
+
+                def on_progress(done, total):
+                    percent = (done / total * 100) if total else 0
+                    speed = self._format_bps(done / max(1e-6, time.time() - start_time))
+                    self.root.after(0, lambda: (
+                        self.transfer_tree.set(item_id, 'Progress', f"{percent:.0f}%"),
+                        self.transfer_tree.set(item_id, 'Speed', speed),
+                        self.progress_var.set(percent)
+                    ))
+
+                def on_complete(success, result):
+                    elapsed = max(1e-6, time.time() - start_time)
+                    recv = os.path.getsize(local_file) if os.path.exists(local_file) else 0
+                    final_speed = self._format_bps(recv / elapsed) if success else '-'
+                    
+                    if success:
+                        self._log_output(f"> RETR {remote_file}\n{result}")
+                        self.root.after(0, lambda: (
+                            self.transfer_tree.set(item_id, 'Status', 'Complete'),
+                            self.transfer_tree.set(item_id, 'Progress', '100%'),
+                            self.transfer_tree.set(item_id, 'Speed', final_speed)
+                        ))
+                    else:
+                        self._log_output(f"> RETR {remote_file}\nFailed: {result}")
+                        self.root.after(0, lambda: (
+                            self.transfer_tree.set(item_id, 'Status', 'Failed'),
+                            self.transfer_tree.set(item_id, 'Speed', '-')
+                        ))
+
+                result = self.client.execute_command('RETR', remote_file, local_path=local_file,
+                                                     callback=on_complete,
+                                                     progress_callback=on_progress,
+                                                     async_mode=True)
+                # Consume generator
+                if hasattr(result, '__iter__') and not isinstance(result, (str, bytes)):
+                    for _ in result:
+                        pass
+            except Exception as e:
+                self._log_output(f"> RETR {remote_file}\nError: {e}")
+                self.root.after(0, lambda: self.transfer_tree.set(item_id, 'Status', 'Failed'))
+
+        threading.Thread(target=download_thread, daemon=True).start()
+
+    def _execute_raw_append(self, local_file, remote_file):
+        """Execute append from raw command with transfer UI"""
+        def append_thread():
+            try:
+                item_id = self.transfer_tree.insert('', tk.END,
+                                                    values=(remote_file, 'Append', 'Starting', '0%', '-'))
+                start_time = time.time()
+                
+                self.root.after(0, lambda: self.transfer_tree.set(item_id, 'Status', 'Appending'))
+
+                def on_progress(done, total):
+                    percent = (done / total * 100) if total else 0
+                    speed = self._format_bps(done / max(1e-6, time.time() - start_time))
+                    self.root.after(0, lambda: (
+                        self.transfer_tree.set(item_id, 'Progress', f"{percent:.0f}%"),
+                        self.transfer_tree.set(item_id, 'Speed', speed),
+                        self.progress_var.set(percent)
+                    ))
+
+                def on_complete(success, result):
+                    elapsed = max(1e-6, time.time() - start_time)
+                    sent = os.path.getsize(local_file) if os.path.exists(local_file) else 0
+                    final_speed = self._format_bps(sent / elapsed) if success else '-'
+                    
+                    if success:
+                        self._log_output(f"> APPE {remote_file}\n{result}")
+                        self.root.after(0, lambda: (
+                            self.transfer_tree.set(item_id, 'Status', 'Complete'),
+                            self.transfer_tree.set(item_id, 'Progress', '100%'),
+                            self.transfer_tree.set(item_id, 'Speed', final_speed),
+                            self._refresh_remote_list()
+                        ))
+                    else:
+                        self._log_output(f"> APPE {remote_file}\nFailed: {result}")
+                        self.root.after(0, lambda: (
+                            self.transfer_tree.set(item_id, 'Status', 'Failed'),
+                            self.transfer_tree.set(item_id, 'Speed', '-')
+                        ))
+
+                result = self.client.execute_command('APPE', remote_file, local_path=local_file,
+                                                     callback=on_complete,
+                                                     progress_callback=on_progress,
+                                                     async_mode=True)
+                # Consume generator
+                if hasattr(result, '__iter__') and not isinstance(result, (str, bytes)):
+                    for _ in result:
+                        pass
+            except Exception as e:
+                self._log_output(f"> APPE {remote_file}\nError: {e}")
+                self.root.after(0, lambda: self.transfer_tree.set(item_id, 'Status', 'Failed'))
+
+        threading.Thread(target=append_thread, daemon=True).start()
 
     def _on_local_double_click(self, event):
         """Handle double-click on local file"""
