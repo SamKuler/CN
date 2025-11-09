@@ -1,0 +1,205 @@
+\documentclass[11pt,a4paper]{article}
+\usepackage[UTF8]{ctex}
+\usepackage[margin=1.5cm]{geometry}
+\usepackage{listings}
+\usepackage{xcolor}
+\usepackage{enumitem}
+\usepackage{booktabs}
+\usepackage{hyperref}
+\usepackage{multicol}
+
+% 代码样式设置
+\lstset{
+    basicstyle=\ttfamily\small,
+    breaklines=true,
+    frame=single,
+    backgroundcolor=\color{gray!10}
+}
+
+% 紧凑列表
+\setlist{nosep, leftmargin=*}
+
+% 紧凑段落
+\setlength{\parskip}{2pt}
+\setlength{\parindent}{0pt}
+
+\title{\textbf{基于Socket的FTP服务器与客户端实现}}
+\author{Zeng Guanyang}
+\date{}
+
+\begin{document}
+
+\maketitle
+\vspace{-2.5em}
+
+\section{简介}
+
+本项目实现了完整的FTP系统，包含多线程C语言服务器和Python客户端。
+服务器支持并发连接、异步传输、主被动模式、断点续传、文件锁等功能，可在Linux/Windows平台运行。
+客户端提供CLI和GUI界面，支持同步和异步传输。
+实现了所有Optional功能。
+
+代码量：\textbf{服务器}：约\textbf{13000}行；\textbf{客户端}：约\textbf{4000}行。
+
+\section{核心功能与支持的FTP命令}
+
+\subsection{服务器端实现（C语言）}
+
+\textbf{模块设计：}
+\begin{itemize}[itemsep=0pt]
+    \item \textbf{server.c：}服务器核心，负责监听套接字管理、连接上限控制、线程池和会话生命周期管理
+    \item \textbf{session.c：}会话状态管理，维护认证状态、当前目录、数据连接模式、续传偏移、重命名状态、统计信息等
+    \item \textbf{command.c + handler.c：}命令注册与调度，由 handler 实现所有FTP命令的具体逻辑和权限校验
+    \item \textbf{auth.c：}用户认证模块，加载users.db（可选），支持密码哈希校验（简单实现）和权限管理
+    \item \textbf{filesys.c：}跨平台文件系统抽象层，提供路径操作、目录遍历、文件元信息查询等功能
+    \item \textbf{transfer.c：}数据传输引擎，管理数据通道、支持ASCII/Binary模式、断点续传、传输中断等
+    \item \textbf{filelock.c：}文件锁管理器，实现基于路径的读写锁，保证并发访问安全性
+    \item \textbf{network.c：}网络抽象层，统一 POSIX 和 Winsock API，提供简单的超时控制、非阻塞模式等
+    \item \textbf{logger.c：}日志系统，支持分级（彩色）输出、时间戳、文件名/行号/函数名记录
+\end{itemize}
+
+\textbf{支持的FTP命令：}
+
+\begin{multicols}{2}
+\begin{itemize}[itemsep=0pt]
+    \item \textbf{连接管理：}USER, PASS, QUIT, REIN
+    \item \textbf{传输模式：}PORT, PASV, TYPE, MODE, STRU
+    \item \textbf{文件操作：}RETR, STOR, APPE, DELE, REST
+    \item \textbf{目录操作：}LIST, NLST, CWD, CDUP, PWD, MKD, RMD
+    \item \textbf{重命名：}RNFR, RNTO
+    \item \textbf{传输控制：}ABOR
+    \item \textbf{信息查询：}SYST, FEAT, SIZE, MDTM, NOOP
+\end{itemize}
+\end{multicols}
+
+\textbf{关键特性：}
+\begin{itemize}[itemsep=1pt]
+    \item \textbf{用户认证系统：}支持多用户管理（users.db），密码哈希校验，权限控制（读/写/删除/重命名/目录管理/管理员），匿名用户为兼容作业具有管理员权限
+    \item \textbf{安全隔离：}所有路径相对配置根目录进行归一化验证，确保用户无法访问根目录外的文件
+    \item \textbf{并发文件锁：}基于路径的读写锁机制，以支持多客户端同时下载，写操作互斥，防止竞态条件
+    \item \textbf{断点续传：}REST命令配合RETR/STOR实现从指定偏移量继续传输
+    \item \textbf{中断控制：}ABOR命令支持通过 OOB 即时中断正在进行的传输
+    \item \textbf{会话统计：}记录上传/下载字节数、文件数量、命令总数和在线时长
+\end{itemize}
+
+\subsection{客户端实现（Python）}
+
+\textbf{架构：}FTPClient主控，ControlConnection/DataConnection管理连接，CommandRegistry实现命令注册模式，TransferManager管理异步传输。实现CLI和Tkinter GUI界面。
+
+\textbf{命令：}USER, PASS, PASV, PORT, RETR, STOR, APPE, REST, ABOR, LIST, NLST, CWD, CDUP, PWD, MKD, RMD, DELE, RNFR, RNTO, TYPE, QUIT等
+
+\textbf{特性：}同步/异步传输、GUI断点续传、进度显示、CLI便捷命令（upload, download, ls等）
+
+\section{关键实现细节}
+
+\subsection{服务器端核心实现}
+
+\textbf{1. 多线程会话管理}
+
+服务器在\texttt{server.c}的\texttt{client\_thread()}函数中处理每个客户端连接。主要流程：
+\begin{itemize}[itemsep=0pt]
+    \item 通过\texttt{pthread\_mutex}保护的全局计数器\texttt{g\_current\_connections}实现并发连接数限制
+    \item 调用\texttt{net\_set\_oob\_inline()}配置控制套接字接收带外数据（用于ABOR命令）
+    \item 发送220欢迎消息后，进入命令循环：使用\texttt{net\_receive\_line()}接收命令，\texttt{net\_has\_urgent\_data()}检测紧急数据（但实际和正常信息流统一处理）
+    \item 命令解析后通过\texttt{command\_dispatch()}分发到对应的handler函数执行
+    \item 会话结束时调用\texttt{session\_destroy()}，等待传输线程退出并递减连接计数
+\end{itemize}
+
+\textbf{2. 异步数据传输线程}
+
+handler函数调用\texttt{session\_start\_transfer\_thread()}启动传输线程：
+\begin{itemize}[itemsep=0pt]
+    \item 分配\texttt{transfer\_params\_t}结构体，包含传输类型（上下传等）、文件路径、偏移量等参数，转移文件锁
+    \item 调用\texttt{pthread\_create}创建线程
+    \item handler在传输启动前前发送150响应码，传输线程在后台执行实际I/O
+    \item 线程函数\texttt{transfer\_thread\_func()}调用\texttt{transfer\_send\_file()}等对应版本执行传输
+    \item 传输完成后线程设置\texttt{transfer\_result}并发送响应，最后清理数据连接和文件锁
+    \item 客户端线程利用\texttt{pthread\_join()}等待线程结束，ABOR命令可以通过设置标志位、关闭数据传输来中止传输线程
+\end{itemize}
+
+\textbf{3. 被动模式竞态问题处理 (Thanks to Claude-Sonnet-4.5)}
+
+被动模式下，服务器需要在监听套接字上\texttt{accept()}客户端连接。实现中遇到并解决了多个竞态问题：
+
+\textbf{问题1：}高并发下（500个）\texttt{select()}显示可读但\texttt{accept()}返回\texttt{EWOULDBLOCK/EAGAIN}
+
+\textbf{原因：}\texttt{select()}和\texttt{accept()}之间存在时间窗口，期间连接可能被撤销或被其他进程接受
+
+\textbf{解决方案：}
+\begin{itemize}[itemsep=0pt]
+    \item 将监听套接字设为非阻塞模式（\texttt{net\_set\_nonblocking()}）
+    \item 实现重试机制：\texttt{accept()}失败时检测是否为\texttt{would\_block}错误，若是则短暂休眠（10ms）后重试，最多重试3次
+    \item 每次重试前检查会话状态（\texttt{should\_quit}）和套接字是否仍然有效，避免在已销毁的会话上操作
+\end{itemize}
+
+\textbf{问题2：}会话销毁时主线程阻塞在\texttt{select()}中
+
+\textbf{原因：}\texttt{select()}在等待连接时持有会话锁会导致死锁，但释放锁后无法安全检测套接字是否被关闭
+
+\textbf{解决方案：}
+\begin{itemize}[itemsep=0pt]
+    \item 在调用\texttt{select()}前释放\texttt{pthread\_mutex}锁，允许其他线程（如会话清理）继续执行
+    \item 保存监听套接字的文件描述符\texttt{listen\_sock}，\texttt{select()}返回后重新获取锁
+    \item 验证\texttt{session->data\_listen\_socket}是否仍等于保存的\texttt{listen\_sock}，若不同说明套接字已被关闭/重建，立即中止
+    \item 当套接字被关闭时，\texttt{select()}会返回错误，正常处理错误并返回即可
+\end{itemize}
+
+\textbf{4. 文件锁}
+
+\texttt{filelock.c}使用链表维护全局锁表\texttt{g\_file\_lock\_entries}，每个节点\texttt{file\_lock\_entry\_t}包含：
+\begin{itemize}[itemsep=0pt]
+    \item \texttt{path}：文件路径；\texttt{readers/writers}：当前持有读/写锁的数量；\texttt{waiting\_writers}：等待写锁的数量
+    \item \texttt{pthread\_cond\_t cond}：条件变量实现锁等待队列
+    \item \texttt{file\_lock\_acquire\_shared()}：获得共享锁，等待无排它锁定，有非阻塞版本
+    \item \texttt{file\_lock\_acquire\_exclusive()}：获得排它锁，等待无其他锁定，同样由有非阻塞版本
+    \item 释放锁时利用\texttt{pthread\_cond\_broadcast()}唤醒所有等待线程；若没有线程持有锁则移除节点
+\end{itemize}
+
+\textbf{5. ABOR中断机制}
+
+\begin{itemize}[itemsep=0pt]
+    \item 控制连接启用OOB inline模式，ABOR命令可作为紧急数据发送
+    \item 主线程检测到ABOR后设置\texttt{session->transfer\_should\_abort = 1}
+    \item 传输线程在每次I/O循环前调用\texttt{session\_should\_abort\_transfer()}检查标志位
+    \item 若需中断，线程设置\texttt{transfer\_result = TRANSFER\_STATUS\_ABORTED}并跳出循环
+    \item 主线程可调用\texttt{session\_close\_data\_connection()}关闭数据套接字，使阻塞I/O立即返回
+    \item 传输结束时根据\texttt{transfer\_result}发送对应响应码，如果传输正在执行，handler提前发送426响应码
+\end{itemize}
+
+\subsection{客户端核心实现}
+
+\textbf{1. 连接管理}
+
+\texttt{ControlConnection}继承\texttt{BaseConnection}，使用\texttt{threading.RLock}保护接收操作：
+\begin{itemize}[itemsep=0pt]
+    \item \texttt{recv\_line()}：逐字节接收直到遇到CRLF（\texttt{\textbackslash r\textbackslash n}）
+    \item \texttt{recv\_multiline()}：检测首行是否为多行响应（码-消息），循环接收直到遇到"码<空格>"结束标记
+    \item \texttt{DataConnection}支持主被动模式：\texttt{setup\_passive()}连接到服务器指定的地址；\texttt{setup\_active()}创建监听套接字并通过\texttt{accept()}等待服务器连接
+\end{itemize}
+
+\textbf{2. 命令注册与Handler模式}
+
+\texttt{CommandRegistry}维护\texttt{commands}字典（命令名$\rightarrow$Handler类）：
+\begin{itemize}[itemsep=0pt]
+    \item 注册：\texttt{register(command\_name, handler\_class)}将Handler类关联到命令名
+    \item 执行：\texttt{execute(command, *args, **kwargs)}实例化对应Handler并调用\texttt{execute()}方法
+    \item 这样新增命令只需定义继承\texttt{CommandHandler}的子类，实现\texttt{execute()}，无需修改核心逻辑
+\end{itemize}
+
+\textbf{3. 传输管理器}
+
+\texttt{TransferManager}使用\texttt{threading}管理异步传输：
+\begin{itemize}[itemsep=0pt]
+    \item 维护\texttt{transfers}字典（transfer\_id$\rightarrow$Transfer对象），每个\texttt{Transfer}包含状态、进度、线程等信息
+    \item \texttt{Transfer}对象使用\texttt{pause\_event}和\texttt{cancel\_event}实现暂停/取消功能
+    \item 传输线程在循环中检查\texttt{pause\_event}（暂停则阻塞）和\texttt{cancel\_event}（取消则退出）
+    \item 支持进度回调：\texttt{progress\_callback(bytes\_transferred, total\_size)}定期报告进度
+    \item 因（目前）FTP单数据连接限制，\texttt{max\_concurrent}实际限制为1，避免数据连接冲突
+\end{itemize}
+
+\textbf{4. GUI实现与测试兼容}
+
+通过在\texttt{main.py}中加入参数控制实现兼容，比如 \texttt{-g} 进入图形化界面，默认进入CLI模式。CLI模式下，不使用 \texttt{-v} 则进入测试兼容版本，避免交互提示。
+GUI实现借助了 Claude-Sonnet-4.5 的帮助
+
+\end{document}

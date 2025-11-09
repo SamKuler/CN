@@ -28,6 +28,12 @@ logs/
 
 *.zip
 *.tar.gz
+*.gz
 *.rar
 *.7z
 *.mp4
+*.webm
+
+*.aux
+*.log
+
