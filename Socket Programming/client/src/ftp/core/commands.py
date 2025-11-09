@@ -158,7 +158,8 @@ class RetrCommand(CommandHandler):
         if offset > 0:
             rest_handler = RestCommand(self.client)
             rest_response = rest_handler.execute(offset)
-            if not rest_response.is_success:
+            # REST should return 3xx (intermediate) - "350 Restart position accepted"
+            if not (rest_response.is_success or rest_response.is_intermediate):
                 if callback:
                     callback(False, rest_response)
                 return rest_response
@@ -263,7 +264,8 @@ class StorCommand(CommandHandler):
         if offset > 0:
             rest_handler = RestCommand(self.client)
             rest_response = rest_handler.execute(offset)
-            if not rest_response.is_success:
+            # REST should return 3xx (intermediate) - "350 Restart position accepted"
+            if not (rest_response.is_success or rest_response.is_intermediate):
                 if callback:
                     callback(False, rest_response)
                 return rest_response
