@@ -65,8 +65,13 @@ class BaseConnection:
         if isinstance(data, str):
             data = data.encode('utf-8')
 
-        with self._lock:
-            self.sock.sendall(data)
+        try:
+            with self._lock:
+                self.sock.sendall(data)
+        except (BrokenPipeError, ConnectionResetError, OSError) as e:
+            # Connection broken - update state and re-raise
+            self.is_connected = False
+            raise ConnectionError(f"Connection lost: {e}")
 
     def recv(self, buffer_size=8192):
         """
@@ -81,7 +86,17 @@ class BaseConnection:
         if not self.is_connected:
             raise ConnectionError("Not connected")
 
-        return self.sock.recv(buffer_size)
+        try:
+            data = self.sock.recv(buffer_size)
+            if not data:
+                # Connection closed by remote
+                self.is_connected = False
+                raise ConnectionError("Connection closed by remote")
+            return data
+        except (BrokenPipeError, ConnectionResetError, OSError) as e:
+            # Connection broken - update state and re-raise
+            self.is_connected = False
+            raise ConnectionError(f"Connection lost: {e}")
 
     def close(self):
         """Close the connection"""
