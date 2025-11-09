@@ -6,9 +6,10 @@ Manages control and data connections
 import socket
 import threading
 
+
 class BaseConnection:
     """Manages a single socket connection"""
-    
+
     def __init__(self, host=None, port=None, timeout=30):
         """
         Initialize connection
@@ -24,7 +25,7 @@ class BaseConnection:
         self.sock = None
         self.is_connected = False
         self._lock = threading.Lock()
-        
+
     def connect(self, host=None, port=None):
         """
         Establish connection to a server
@@ -40,7 +41,7 @@ class BaseConnection:
             self.host = host
         if port:
             self.port = port
-            
+
         try:
             self.sock = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
             self.sock.settimeout(self.timeout)
@@ -50,7 +51,7 @@ class BaseConnection:
         except Exception as e:
             self.is_connected = False
             raise ConnectionError(f"Failed to connect: {e}")
-    
+
     def send(self, data):
         """
         Send data through socket
@@ -60,13 +61,13 @@ class BaseConnection:
         """
         if not self.is_connected:
             raise ConnectionError("Not connected")
-            
+
         if isinstance(data, str):
             data = data.encode('utf-8')
-        
+
         with self._lock:
             self.sock.sendall(data)
-    
+
     def recv(self, buffer_size=8192):
         """
         Receive data from socket
@@ -79,7 +80,7 @@ class BaseConnection:
         """
         if not self.is_connected:
             raise ConnectionError("Not connected")
-            
+
         return self.sock.recv(buffer_size)
 
     def close(self):
@@ -95,7 +96,7 @@ class BaseConnection:
 
 class ControlConnection(BaseConnection):
     """Manages the FTP control connection"""
-    
+
     def __init__(self, host=None, port=21, timeout=30):
         """
         Initialize control connection
@@ -107,7 +108,7 @@ class ControlConnection(BaseConnection):
         """
         super().__init__(host, port, timeout)
         self._recv_lock = threading.RLock()
-    
+
     def recv_line(self):
         """
         Receive a line of text (until CRLF)
@@ -123,7 +124,7 @@ class ControlConnection(BaseConnection):
                     break
                 line += chunk
             return line.decode('utf-8').rstrip('\r\n')
-    
+
     def recv_multiline(self):
         """
         Receive multiline response (RFC 959 section 4.2)
@@ -135,7 +136,7 @@ class ControlConnection(BaseConnection):
             lines = []
             first_line = self.recv_line()
             lines.append(first_line)
-            
+
             # Check if multiline response '-' follows the code
             if len(first_line) >= 4 and first_line[3] == '-':
                 code = first_line[:3]
@@ -145,20 +146,20 @@ class ControlConnection(BaseConnection):
                     # End of multiline when we see "code<space>"
                     if line.startswith(code + ' '):
                         break
-            
+
             return lines
 
 
 class DataConnection:
     """Manages FTP data connection for file transfers"""
-    
+
     def __init__(self):
         """Initialize data connection handler"""
         self.mode = 'passive'  # 'passive' or 'active'
         self.connection = None
         self.server_socket = None  # Only for active mode
         self._lock = threading.Lock()
-        
+
     def setup_passive(self, host, port):
         """
         Setup passive mode data connection (PASV)
@@ -170,7 +171,7 @@ class DataConnection:
         with self._lock:
             self.mode = 'passive'
             self.connection = BaseConnection(host, port)
-        
+
     def setup_active(self, listen_host='0.0.0.0', listen_port=0):
         """
         Setup active mode data connection (PORT)
@@ -188,11 +189,11 @@ class DataConnection:
             self.server_socket.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
             self.server_socket.bind((listen_host, listen_port))
             self.server_socket.listen(1)
-            
+
             # Get actual bound address
             host, port = self.server_socket.getsockname()
             return host, port
-    
+
     def connect(self):
         """
         Establish data connection
@@ -209,17 +210,17 @@ class DataConnection:
             self.connection.sock = client_sock
             self.connection.is_connected = True
             return True
-    
+
     def send_data(self, data):
         """Send data through data connection"""
         if isinstance(data, str):
             data = data.encode('utf-8')
         self.connection.send(data)
-    
+
     def recv_data(self, buffer_size=8192):
         """Receive data through data connection"""
         return self.connection.recv(buffer_size)
-    
+
     def recv_all(self):
         """
         Receive all data until connection closes
@@ -237,7 +238,7 @@ class DataConnection:
             except:
                 break
         return data
-    
+
     def close(self):
         """Close data connection"""
         with self._lock:
