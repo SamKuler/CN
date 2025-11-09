@@ -445,6 +445,9 @@ class AborCommand(CommandHandler):
                     return response2
                 except:
                     return response
+            
+            # Return the first successful response
+            return response
 
         except Exception as e:
             # Fallback: send ABOR normally
