@@ -96,21 +96,45 @@ class PasvCommand(CommandHandler):
 class PortCommand(CommandHandler):
     """PORT command handler - specify data port for active mode"""
 
-    def execute(self, host=None, port=0):
+    def execute(self, *args):
         """Send PORT command and setup data connection"""
-        # Setup active data connection
-        if host is None:
-            # Use local address from control connection
-            host = self.client.control_conn.sock.getsockname()[0]
+        host, port = self._determine_active_address(args)
 
         listen_host, listen_port = self.client.data_conn.setup_active(host, port)
 
-        # Format and send PORT command
+        # Format and send PORT command using the actual bound address/port
         port_arg = ResponseParser.format_port_command(listen_host, listen_port)
         cmd = self.format_command("PORT", port_arg)
         self.client.control_conn.send(cmd)
         lines = self.client.control_conn.recv_multiline()
         return ResponseParser.parse(lines)
+
+    def _determine_active_address(self, args):
+        """Resolve host/port tuples for active data mode."""
+        if not args:
+            # Use the same local address as the control connection, let OS pick port
+            return self.client.control_conn.sock.getsockname()[0], 0
+
+        tokens = []
+        for arg in args:
+            tokens.extend(str(part) for part in str(arg).replace(',', ' ').split())
+
+        if len(tokens) == 6:
+            numbers = [int(tok) for tok in tokens]
+            host = '.'.join(str(n) for n in numbers[:4])
+            port = numbers[4] * 256 + numbers[5]
+            return host, port
+
+        if len(tokens) == 2:
+            host = tokens[0]
+            port = int(tokens[1])
+            return host, port
+
+        if len(tokens) == 1:
+            # Treat single token as hostname/ip, let OS pick ephemeral port
+            return tokens[0], 0
+
+        raise ValueError("PORT command expects six integers, a host and port, or just a host")
 
 
 # ===== File Transfer Commands =====
@@ -162,9 +186,13 @@ class RetrCommand(CommandHandler):
                     callback=callback,
                     progress_callback=progress_callback
                 )
-                return response
+                yield response
+                return
             else:
                 # Synchronous path (force or no local_path/callback)
+                # Yield preliminary response first
+                yield response
+                
                 self.client.data_conn.connect()
                 data = self.client.data_conn.recv_all()
                 self.client.data_conn.close()
@@ -182,7 +210,8 @@ class RetrCommand(CommandHandler):
                     except Exception as e:
                         if callback:
                             callback(False, str(e))
-                        return final_response
+                        yield final_response
+                        return
 
                 # Store received data in client
                 self.client.last_transfer_data = data
@@ -190,7 +219,9 @@ class RetrCommand(CommandHandler):
                 if callback:
                     callback(final_response.is_success, data if final_response.is_success else final_response)
 
-                return final_response
+                # Yield final response
+                yield final_response
+                return
 
         if callback:
             callback(False, response)
@@ -246,9 +277,13 @@ class StorCommand(CommandHandler):
                     callback=callback,
                     progress_callback=progress_callback
                 )
-                return response
+                yield response
+                return
             else:
                 # Synchronous path
+                # Yield preliminary response first
+                yield response
+                
                 self.client.data_conn.connect()
                 # Prepare bytes to send
                 if data is None and local_path:
@@ -263,7 +298,8 @@ class StorCommand(CommandHandler):
                         # still read final response to keep protocol in sync
                         lines = self.client.control_conn.recv_multiline()
                         final_response = ResponseParser.parse(lines)
-                        return final_response
+                        yield final_response
+                        return
                 if data:
                     self.client.data_conn.send_data(data)
                 self.client.data_conn.close()
@@ -275,7 +311,9 @@ class StorCommand(CommandHandler):
                 if callback:
                     callback(final_response.is_success, final_response)
 
-                return final_response
+                # Yield final response
+                yield final_response
+                return
 
         if callback:
             callback(False, response)
@@ -320,9 +358,13 @@ class AppeCommand(CommandHandler):
                     callback=callback,
                     progress_callback=progress_callback
                 )
-                return response
+                yield response
+                return
             else:
                 # Synchronous path
+                # Yield preliminary response first
+                yield response
+                
                 self.client.data_conn.connect()
                 if data is None and local_path:
                     try:
@@ -333,7 +375,8 @@ class AppeCommand(CommandHandler):
                             callback(False, str(e))
                         lines = self.client.control_conn.recv_multiline()
                         final_response = ResponseParser.parse(lines)
-                        return final_response
+                        yield final_response
+                        return
                 if data:
                     self.client.data_conn.send_data(data)
                 self.client.data_conn.close()
@@ -345,7 +388,9 @@ class AppeCommand(CommandHandler):
                 if callback:
                     callback(final_response.is_success, final_response)
 
-                return final_response
+                # Yield final response
+                yield final_response
+                return
 
         if callback:
             callback(False, response)
@@ -431,6 +476,9 @@ class ListCommand(CommandHandler):
         response = ResponseParser.parse(lines)
 
         if response.is_preliminary or response.is_success:
+            # Yield preliminary response first
+            yield response
+            
             # Connect data channel and receive listing
             self.client.data_conn.connect()
             data = self.client.data_conn.recv_all()
@@ -446,7 +494,9 @@ class ListCommand(CommandHandler):
             if callback:
                 callback(final_response.is_success, data if final_response.is_success else final_response)
 
-            return final_response
+            # Yield final response
+            yield final_response
+            return
 
         if callback:
             callback(False, response)
@@ -473,6 +523,9 @@ class NlstCommand(CommandHandler):
         response = ResponseParser.parse(lines)
 
         if response.is_preliminary or response.is_success:
+            # Yield preliminary response first
+            yield response
+            
             # Connect data channel and receive listing
             self.client.data_conn.connect()
             data = self.client.data_conn.recv_all()
@@ -488,11 +541,13 @@ class NlstCommand(CommandHandler):
             if callback:
                 callback(final_response.is_success, data if final_response.is_success else final_response)
 
-            return final_response
+            # Yield final response
+            yield final_response
+            return
 
         if callback:
             callback(False, response)
-        return response
+        yield response
 
 
 # ===== Directory Management Commands =====
